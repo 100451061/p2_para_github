@@ -300,9 +300,9 @@ FROM books b
          LEFT JOIN copies c ON (c.ISBN = e.ISBN)
          LEFT JOIN loans l ON (l.signature = c.signature)
 WHERE l.signature IS NULL
-  AND (b.title, b.author) IN (SELECT title, author
-                              FROM editions
-                              GROUP BY title, author
+  AND (b.title, b.author) IN (SELECT b.title, b.author
+                              FROM editions e
+                              GROUP BY e.title, e.author
                               HAVING COUNT(DISTINCT language) >= 3);
 
 commit;
@@ -375,3 +375,6 @@ commit;
 
 select *
 from informe_empleados;
+
+
+
