@@ -281,89 +281,149 @@ CREATE TABLE posts
 );
 
 
--- 1) BoreBooks: libros con ediciones en, al menos, tres idiomas (language) distintos,
--- de los que nunca se haya prestado ninguna copia.
-drop view BoreBooks;
 
-CREATE VIEW BoreBooks AS
-SELECT DISTINCT b.title, b.author
-FROM books b
-         JOIN editions e ON (e.title = b.title) AND (e.author = b.author)
-         LEFT JOIN copies c ON (c.ISBN = e.ISBN)
-         LEFT JOIN loans l ON (l.signature = c.signature)
-WHERE l.signature IS NULL
-  AND (b.title, b.author) IN (SELECT title, author
+-- consultas intermedias del view 1)
+
+-- Ver libros con ≥ 3 idiomas distintos, asi me corrijo y compruebo
+SELECT title, author, COUNT(DISTINCT language) cantidad_idiomas
+FROM editions
+GROUP BY title, author
+HAVING COUNT(DISTINCT language) >= 3;
+
+
+-- Aquí ya ves las ediciones completas solo de los libros que tienen ≥3 idiomas.
+SELECT ISBN, TITLE, AUTHOR, LANGUAGE
+FROM editions
+WHERE (title, author) IN (SELECT title, author
+                          FROM editions
+                          GROUP BY title, author
+                          HAVING COUNT(DISTINCT language) >= 3);
+
+
+-- Ver qué copias físicas existen de esas ediciones.
+SELECT c.signature, e.isbn, e.title, e.author
+FROM copies c
+         JOIN Editions e ON (c.isbn = e.isbn)
+WHERE (e.title, e.author) IN (SELECT title, author
                               FROM editions
                               GROUP BY title, author
                               HAVING COUNT(DISTINCT language) >= 3);
 
-commit;
 
-select *
-from BoreBooks;
+-- Copias de libros multilingües sin préstamos
+SELECT b.title,
+       b.author,
+       e.isbn,
+       NVL(c.signature, 'sin_copia') AS copia
+FROM editions e
+         JOIN books b ON (e.title = b.title) AND (e.author = b.author)
+         JOIN (SELECT title, author
+               FROM editions
+               GROUP BY title, author
+               HAVING COUNT(DISTINCT language) >= 3) ed ON (ed.title = b.title) AND (ed.author = b.author)
+         LEFT JOIN copies c ON (c.ISBN = e.ISBN);
+
+
+-- Ver si la copia ha sido prestada (sí o no)
+SELECT b.title,
+       b.author,
+       e.isbn,
+       NVL(c.signature, 'sin_copia')   AS copia,
+       NVL(l.signature, 'no_prestada') AS prestada
+FROM Editions e
+         JOIN books b ON (e.title = b.title) AND (e.author = b.author)
+         JOIN (SELECT title, author
+               FROM editions
+               GROUP BY title, author
+               HAVING COUNT(DISTINCT language) >= 3) ed ON (ed.title = b.title) AND (ed.author = b.author)
+         LEFT JOIN copies c ON (c.ISBN = e.ISBN)
+         LEFT JOIN loans l ON (l.signature = c.signature)
+ORDER BY b.title, c.signature;
 
 
 
--- 2) ) Informe de Empleados: para cada conductor, proporcionar su nombre
--- completo, edad, antigüedad de contrato (años completos), años activo (años
--- con al menos un día en carretera), número medio de paradas por año activo,
--- número medio de préstamos por año activo, y porcentaje de préstamos no
--- devueltos (con respecto al total operados por ese empleado).
+-- consultas intermedias del view 2)
 
-drop view informe_empleados;
+-- oracle no tiene una operacion years_between, oracle nos da months_between, tenemos que hacerlo nosotros
+-- calculamos los meses completos entre la fecha actual y la fecha de nacimiento, luego dividimos entre 12 para obtener la edad,
+-- como hay decimales, los truncamos y me quedo con la parte entera
 
-CREATE VIEW informe_empleados AS
+-- calculo de la edad
+SELECT fullname,
+       TRUNC(MONTHS_BETWEEN(SYSDATE, birthdate) / 12) AS edad
+FROM drivers;
+
+-- calculo de la antiguedad
+SELECT fullname,
+       TRUNC(MONTHS_BETWEEN(SYSDATE, cont_start) / 12) AS antiguedad
+FROM drivers;
+
+
+-- Calculo para cada conductor; queremos saber en cuántos años diferentes ha trabajado al menos un día
+-- (i.e; ha sido asignado a una ruta en al menos una fecha del año).
+-- Un año activo es un año en el que el conductor ha trabajado al menos un día.
+-- Si hay al menos una fila en assign_drv para un año determinado → ese año cuenta como activo.
+
+-- Años con al menos un día en carretera.
+-- EXTRACT(YEAR FROM taskdate) -> 2021, 2021, 2022, 2023, 2023, 2023
+-- DISTINCT -> 2021, 2022, 2023
+-- COUNT -> 3 años activos
+
 SELECT d.fullname,
-       TRUNC(MONTHS_BETWEEN(SYSDATE, d.birthdate) / 12)                        AS edad,
-       TRUNC(MONTHS_BETWEEN(SYSDATE, d.cont_start) / 12)                       AS antiguedad,
+       COUNT(DISTINCT EXTRACT(YEAR FROM a.taskdate)) AS años_activos
+FROM drivers d
+         JOIN assign_drv a ON (a.passport = d.passport)
+GROUP BY d.fullname, d.PASSPORT;
+-- agrupo tb por passport, en el caso de que fullname se repita
 
-       -- años activos
-       aa.años_activos,
 
-       -- media de paradas por año activo
-       ROUND(NVL(p.num_paradas / NULLIF(aa.años_activos, 0), 0), 2)            AS media_paradas_por_año,
+-- número medio de paradas por año activo.
+-- drivers -> assign_drv -> services
+-- Contar todas las paradas que ha hecho en total.
+-- Dividir ese número entre los años activos
+SELECT d.fullname,
+       COUNT(*)                                                 AS num_paradas,
+       COUNT(DISTINCT EXTRACT(YEAR FROM a.taskdate))            AS años_activos,
+       COUNT(*) / COUNT(DISTINCT EXTRACT(YEAR FROM a.taskdate)) AS media_paradas_por_año
+FROM drivers d
+         JOIN assign_drv a ON (a.passport = d.passport)
+         JOIN services s ON (s.taskdate = a.taskdate) AND (s.passport = a.passport)
+GROUP BY d.passport, d.fullname;
 
-       -- media de préstamos por año activo
-       ROUND(NVL(pr.num_prestamos / NULLIF(aa.años_activos, 0), 0), 2)         AS media_prestamos_por_año,
 
-       -- porcentaje de préstamos no devueltos
-       ROUND(NVL(n.no_devueltos * 100.0 / NULLIF(n.total_prestamos, 0), 0), 2) AS porcentaje_no_devueltos
+-- número medio de préstamos por año activo,
+-- drivers -> assign_drv -> services -> loans
+SELECT d.fullname,
+       COUNT(*)                                                 AS num_prestamos,
+       COUNT(DISTINCT EXTRACT(YEAR FROM a.taskdate))            AS años_activos,
+       COUNT(*) / COUNT(DISTINCT EXTRACT(YEAR FROM a.taskdate)) AS media_prestamos_por_año
+FROM drivers d
+         JOIN assign_drv a ON (a.passport = d.passport)
+         JOIN services s ON (s.taskdate = a.taskdate) AND (s.passport = a.passport)
+         JOIN loans l ON (l.STOPDATE = s.taskdate) AND (l.town = s.town) AND (l.province = s.province)
+GROUP BY d.passport, d.fullname;
+
+
+
+-- porcentaje de préstamos no devueltos (con respecto al total operados por ese empleado).
+-- Para cada conductor, queremos saber ¿Qué porcentaje de los préstamos que ha gestionado no han sido devueltos?
+-- (SUMA de préstamos no devueltos) / (TOTAL de préstamos gestionados) * 100
+SELECT d.fullname,
+       COUNT(*)               AS total_prestamos,
+
+       SUM(CASE
+               WHEN l.return IS NULL THEN 1
+               ELSE 0
+           END)               AS prestamos_no_devueltos, -- he comprobado, y no hay préstamos sin devolver, asi que arroja 0.
+
+       SUM(CASE
+               WHEN l.return IS NULL THEN 1
+               ELSE 0
+           END)
+           * 100.0 / COUNT(*) AS porcentaje_no_devueltos -- arroja 0
 
 FROM drivers d
-
--- años activos
-         LEFT JOIN (SELECT passport,
-                           COUNT(DISTINCT EXTRACT(YEAR FROM taskdate)) AS años_activos
-                    FROM assign_drv
-                    GROUP BY passport) aa ON (d.passport = aa.passport)
-
--- número total de paradas
-         LEFT JOIN (SELECT s.passport,
-                           COUNT(*) AS num_paradas
-                    FROM assign_drv a
-                             JOIN services s ON (s.passport = a.passport) AND (s.taskdate = a.taskdate)
-                    GROUP BY s.passport) p ON (d.passport = p.passport)
-
--- número total de préstamos
-         LEFT JOIN (SELECT s.passport,
-                           COUNT(*) AS num_prestamos
-                    FROM assign_drv a
-                             JOIN services s ON (s.passport = a.passport) AND (s.taskdate = a.taskdate)
-                             JOIN loans l ON (l.stopdate = s.taskdate) AND (l.town = s.town) AND (l.province = s.province)
-                    GROUP BY s.passport) pr ON (d.passport = pr.passport)
-
--- préstamos no devueltos
-         LEFT JOIN (SELECT s.passport,
-                           COUNT(*) AS total_prestamos,
-                           SUM(CASE
-                                   WHEN l.return IS NULL THEN 1
-                                   ELSE 0
-                               END) AS no_devueltos
-                    FROM services s
-                             JOIN loans l ON (l.stopdate = s.taskdate) AND (l.town = s.town) AND (l.province = s.province)
-                    GROUP BY s.passport) n ON (d.passport = n.passport);
-
-commit;
-
-select *
-from informe_empleados;
+         JOIN services s
+              ON (s.passport = d.passport)
+         JOIN loans l ON (l.town = s.town AND l.province = s.province AND l.stopdate = s.taskdate)
+GROUP BY d.passport, d.fullname;
