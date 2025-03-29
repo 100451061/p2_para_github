@@ -293,7 +293,7 @@ CREATE TABLE posts
 -- de los que nunca se haya prestado ninguna copia.
 drop view BoreBooks;
 
-CREATE VIEW BoreBooks AS
+CREATE OR REPLACE VIEW BoreBooks AS
 SELECT DISTINCT b.title, b.author
 FROM books b
          JOIN editions e ON (e.title = b.title) AND (e.author = b.author)
@@ -320,22 +320,21 @@ from BoreBooks;
 
 drop view informe_empleados;
 
-CREATE VIEW informe_empleados AS
-SELECT d.fullname,
-       TRUNC(MONTHS_BETWEEN(SYSDATE, d.birthdate) / 12)                        AS edad,
-       TRUNC(MONTHS_BETWEEN(SYSDATE, d.cont_start) / 12)                       AS antiguedad,
+CREATE OR REPLACE VIEW informe_empleados AS
+SELECT
+    -- información personal
+    d.fullname                                                    AS nombre_completo,
+    TRUNC(MONTHS_BETWEEN(SYSDATE, d.birthdate) / 12)              AS edad,
+    TRUNC(MONTHS_BETWEEN(SYSDATE, d.cont_start) / 12)             AS antigüedad,
 
-       -- años activos
-       aa.años_activos,
-
-       -- media de paradas por año activo
-       ROUND(NVL(p.num_paradas / NULLIF(aa.años_activos, 0), 0), 2)            AS media_paradas_por_año,
-
-       -- media de préstamos por año activo
-       ROUND(NVL(pr.num_prestamos / NULLIF(aa.años_activos, 0), 0), 2)         AS media_prestamos_por_año,
-
-       -- porcentaje de préstamos no devueltos
-       ROUND(NVL(n.no_devueltos * 100.0 / NULLIF(n.total_prestamos, 0), 0), 2) AS porcentaje_no_devueltos
+    -- años activos
+    aa.años_activos                                               AS años_activos,
+    -- media de paradas por año activo
+    NVL(p.num_paradas / NULLIF(aa.años_activos, 0), 0)            AS media_paradas_por_año, -- nullif para evitar division por 0
+    -- media de préstamos por año activo
+    NVL(pr.num_prestamos / NULLIF(aa.años_activos, 0), 0)         AS media_prestamos_por_año,
+    -- porcentaje de préstamos no devueltos
+    NVL(n.no_devueltos * 100.0 / NULLIF(n.total_prestamos, 0), 0) AS porcentaje_no_devueltos
 
 FROM drivers d
 
