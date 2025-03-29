@@ -322,56 +322,60 @@ drop view informe_empleados;
 
 CREATE OR REPLACE VIEW informe_empleados AS
 SELECT
-    -- información personal
-    d.fullname                                                    AS nombre_completo,
-    TRUNC(MONTHS_BETWEEN(SYSDATE, d.birthdate) / 12)              AS edad,
-    TRUNC(MONTHS_BETWEEN(SYSDATE, d.cont_start) / 12)             AS antigüedad,
+    -- Información personal
+    d.fullname                                                          AS nombre_completo,
+    TRUNC(MONTHS_BETWEEN(SYSDATE, d.birthdate) / 12)                    AS edad,
+    TRUNC(MONTHS_BETWEEN(SYSDATE, d.cont_start) / 12)                   AS antigüedad,
 
-    -- años activos
-    aa.años_activos                                               AS años_activos,
-    -- media de paradas por año activo
-    NVL(p.num_paradas / NULLIF(aa.años_activos, 0), 0)            AS media_paradas_por_año,   -- si aa.años_activos = 0, arrojo null y evito la division entre 0
-    -- media de préstamos por año activo
-    NVL(pr.num_prestamos / NULLIF(aa.años_activos, 0), 0)         AS media_prestamos_por_año, -- si aa.años_activos = 0, arrojo null y evito la division entre 0
-    -- porcentaje de préstamos no devueltos
-    NVL(n.no_devueltos * 100.0 / NULLIF(n.total_prestamos, 0), 0) AS porcentaje_no_devueltos
+    -- Años activos
+    sub1.años_activos,
+
+    -- Media de paradas por año activo
+    NVL(sub2.total_paradas / NULLIF(sub1.años_activos, 0), 0)           AS media_paradas_por_año,
+
+    -- Media de préstamos por año activo
+    NVL(sub3.total_prestamos / NULLIF(sub1.años_activos, 0), 0)         AS media_prestamos_por_año,
+
+    -- Porcentaje de préstamos no devueltos
+    NVL(sub4.no_devueltos * 100.0 / NULLIF(sub4.total_prestamos, 0), 0) AS porcentaje_no_devueltos
 
 FROM drivers d
 
--- años activos. (Contamos la cantidad de años diferentes en los que el conductor ha trabajado)
+-- sub1: años activos por conductor
          LEFT JOIN (SELECT passport,
                            COUNT(DISTINCT EXTRACT(YEAR FROM taskdate)) AS años_activos
                     FROM assign_drv
-                    GROUP BY passport) aa ON (d.passport = aa.passport)
+                    GROUP BY passport) sub1 ON (sub1.passport = d.passport) -- sub1 conecta con drivers (sub consulta 1)
 
--- número total de paradas
+-- sub2: total de paradas por conductor
          LEFT JOIN (SELECT s.passport,
-                           COUNT(*) AS num_paradas
+                           COUNT(*) AS total_paradas
                     FROM assign_drv a
-                             JOIN services s ON (s.passport = a.passport) AND (s.taskdate = a.taskdate)
-                    GROUP BY s.passport) p ON (d.passport = p.passport)
+                             JOIN services s ON (s.taskdate = a.taskdate) AND (s.passport = a.passport) -- services conecta con assign_drv
+                    GROUP BY s.passport) sub2 ON (sub2.passport = d.passport) -- sub2 conecta con drivers (sub consulta 2)
 
--- número total de préstamos
+-- sub3: total de préstamos por conductor
          LEFT JOIN (SELECT s.passport,
-                           COUNT(*) AS num_prestamos
+                           COUNT(*) AS total_prestamos
                     FROM assign_drv a
-                             JOIN services s ON (s.passport = a.passport) AND (s.taskdate = a.taskdate)
-                             JOIN loans l ON (l.stopdate = s.taskdate) AND (l.town = s.town) AND (l.province = s.province)
-                    GROUP BY s.passport) pr ON (d.passport = pr.passport)
+                             JOIN services s ON (s.taskdate = a.taskdate) AND (s.passport = a.passport) -- services conecta con assign_drv
+                             JOIN loans l ON (l.stopdate = s.taskdate) AND (l.town = s.town) AND (l.province = s.province) -- loans conecta con services
+                    GROUP BY s.passport) sub3 ON (sub3.passport = d.passport) -- sub3 conecta con drivers (sub consulta 3)
 
--- préstamos no devueltos
+-- sub4: préstamos no devueltos por conductor
          LEFT JOIN (SELECT s.passport,
                            COUNT(*) AS total_prestamos,
                            SUM(CASE
-                                   WHEN l.return IS NULL THEN 1
+                                   WHEN l.return IS NULL
+                                       THEN 1
                                    ELSE 0
                                END) AS no_devueltos
                     FROM services s
-                             JOIN loans l ON (l.stopdate = s.taskdate) AND (l.town = s.town) AND (l.province = s.province)
-                    GROUP BY s.passport) n ON (d.passport = n.passport);
+                             JOIN loans l ON (l.stopdate = s.taskdate) AND (l.town = s.town) AND (l.province = s.province) -- loans conecta con services
+                    GROUP BY s.passport) sub4 ON (sub4.passport = d.passport); -- sub4 conecta con drivers (sub consulta 4)
 
-commit;
+COMMIT;
 
-select *
-from informe_empleados;
 
+SELECT *
+FROM informe_empleados;
