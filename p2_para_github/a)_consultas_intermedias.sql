@@ -285,43 +285,29 @@ CREATE TABLE posts
 -- consultas intermedias del view 1)
 
 -- Ver libros con ≥ 3 idiomas distintos, asi me corrijo y compruebo
-SELECT title, author, COUNT(DISTINCT language) cantidad_idiomas
+SELECT title, author, COUNT(DISTINCT language) as cantidad_idiomas
 FROM editions
 GROUP BY title, author
 HAVING COUNT(DISTINCT language) >= 3;
 
 
--- Aquí ya ves las ediciones completas solo de los libros que tienen ≥3 idiomas.
-SELECT ISBN, TITLE, AUTHOR, LANGUAGE
-FROM editions
-WHERE (title, author) IN (SELECT title, author
-                          FROM editions
-                          GROUP BY title, author
-                          HAVING COUNT(DISTINCT language) >= 3);
+-- Aquí ya ves las ediciones completas solo de los libros que tienen ≥ 3 idiomas.
+SELECT e.ISBN, e.TITLE, e.AUTHOR, e.LANGUAGE
+FROM editions e
+         JOIN (SELECT title, author
+               FROM editions
+               GROUP BY title, author
+               HAVING COUNT(DISTINCT language) >= 3) sub1 ON (sub1.title = e.title) AND (sub1.author = e.author);
 
 
 -- Ver qué copias físicas existen de esas ediciones.
 SELECT c.signature, e.isbn, e.title, e.author
 FROM copies c
-         JOIN Editions e ON (c.isbn = e.isbn)
-WHERE (e.title, e.author) IN (SELECT title, author
-                              FROM editions
-                              GROUP BY title, author
-                              HAVING COUNT(DISTINCT language) >= 3);
-
-
--- Copias de libros multilingües sin préstamos
-SELECT b.title,
-       b.author,
-       e.isbn,
-       NVL(c.signature, 'sin_copia') AS copia
-FROM editions e
-         JOIN books b ON (e.title = b.title) AND (e.author = b.author)
+         JOIN editions e ON (c.isbn = e.isbn)
          JOIN (SELECT title, author
                FROM editions
                GROUP BY title, author
-               HAVING COUNT(DISTINCT language) >= 3) ed ON (ed.title = b.title) AND (ed.author = b.author)
-         LEFT JOIN copies c ON (c.ISBN = e.ISBN);
+               HAVING COUNT(DISTINCT language) >= 3) sub1 ON (sub1.title = e.title) AND (sub1.author = e.author);
 
 
 -- Ver si la copia ha sido prestada (sí o no)
@@ -330,15 +316,15 @@ SELECT b.title,
        e.isbn,
        NVL(c.signature, 'sin_copia')   AS copia,
        NVL(l.signature, 'no_prestada') AS prestada
-FROM Editions e
-         JOIN books b ON (e.title = b.title) AND (e.author = b.author)
-         JOIN (SELECT title, author
-               FROM editions
-               GROUP BY title, author
-               HAVING COUNT(DISTINCT language) >= 3) ed ON (ed.title = b.title) AND (ed.author = b.author)
-         LEFT JOIN copies c ON (c.ISBN = e.ISBN)
-         LEFT JOIN loans l ON (l.signature = c.signature)
-ORDER BY b.title, c.signature;
+
+FROM (SELECT title, author
+      FROM editions
+      GROUP BY title, author
+      HAVING COUNT(DISTINCT language) >= 3) sub1
+         JOIN books b ON (sub1.title = b.title) AND (sub1.author = b.author)
+         JOIN editions e ON (e.title = b.title) AND (e.author = b.author)
+         LEFT JOIN copies c ON (c.isbn = e.isbn)
+         LEFT JOIN loans l ON (l.signature = c.signature);
 
 
 

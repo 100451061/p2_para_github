@@ -291,19 +291,24 @@ CREATE TABLE posts
 
 -- 1) BoreBooks: libros con ediciones en, al menos, tres idiomas (language) distintos,
 -- de los que nunca se haya prestado ninguna copia.
-drop view BoreBooks;
+DROP VIEW BoreBooks;
 
 CREATE OR REPLACE VIEW BoreBooks AS
-SELECT DISTINCT b.title, b.author
-FROM books b
+
+SELECT DISTINCT b.title,
+                b.author
+
+FROM (SELECT title, author
+      FROM editions
+      GROUP BY title, author
+      HAVING COUNT(DISTINCT language) >= 3) sub1
+         JOIN books b ON (sub1.title = b.title) AND (sub1.author = b.author)
          JOIN editions e ON (e.title = b.title) AND (e.author = b.author)
-         LEFT JOIN copies c ON (c.ISBN = e.ISBN)
+         LEFT JOIN copies c ON (c.isbn = e.isbn)
          LEFT JOIN loans l ON (l.signature = c.signature)
-WHERE l.signature IS NULL
-  AND (b.title, b.author) IN (SELECT b.title, b.author
-                              FROM editions e
-                              GROUP BY e.title, e.author
-                              HAVING COUNT(DISTINCT language) >= 3);
+
+WHERE l.signature IS NULL; -- cuyas copias nunca se han prestado. output: 102 registros
+
 commit;
 
 select *
