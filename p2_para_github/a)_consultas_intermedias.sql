@@ -344,7 +344,7 @@ ORDER BY b.title, c.signature;
 
 -- consultas intermedias del view 2)
 
--- oracle no tiene una operacion years_between, oracle nos da months_between, tenemos que hacerlo nosotros
+-- oracle no tiene una operación years_between, oracle nos da months_between, tenemos que hacerlo nosotros
 -- calculamos los meses completos entre la fecha actual y la fecha de nacimiento, luego dividimos entre 12 para obtener la edad,
 -- como hay decimales, los truncamos y me quedo con la parte entera
 
@@ -370,6 +370,7 @@ FROM drivers;
 -- COUNT -> 3 años activos
 
 SELECT d.fullname,
+       d.PASSPORT,
        COUNT(DISTINCT EXTRACT(YEAR FROM a.taskdate)) AS años_activos
 FROM drivers d
          JOIN assign_drv a ON (a.passport = d.passport)

@@ -330,15 +330,15 @@ SELECT
     -- años activos
     aa.años_activos                                               AS años_activos,
     -- media de paradas por año activo
-    NVL(p.num_paradas / NULLIF(aa.años_activos, 0), 0)            AS media_paradas_por_año, -- nullif para evitar division por 0
+    NVL(p.num_paradas / NULLIF(aa.años_activos, 0), 0)            AS media_paradas_por_año,   -- si aa.años_activos = 0, arrojo null y evito la division entre 0
     -- media de préstamos por año activo
-    NVL(pr.num_prestamos / NULLIF(aa.años_activos, 0), 0)         AS media_prestamos_por_año,
+    NVL(pr.num_prestamos / NULLIF(aa.años_activos, 0), 0)         AS media_prestamos_por_año, -- si aa.años_activos = 0, arrojo null y evito la division entre 0
     -- porcentaje de préstamos no devueltos
     NVL(n.no_devueltos * 100.0 / NULLIF(n.total_prestamos, 0), 0) AS porcentaje_no_devueltos
 
 FROM drivers d
 
--- años activos
+-- años activos. (Contamos la cantidad de años diferentes en los que el conductor ha trabajado)
          LEFT JOIN (SELECT passport,
                            COUNT(DISTINCT EXTRACT(YEAR FROM taskdate)) AS años_activos
                     FROM assign_drv
@@ -374,6 +374,4 @@ commit;
 
 select *
 from informe_empleados;
-
-
 
