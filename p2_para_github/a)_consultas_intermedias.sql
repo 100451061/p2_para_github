@@ -414,3 +414,4 @@ FROM drivers d
               ON (s.passport = d.passport)
          JOIN loans l ON (l.town = s.town AND l.province = s.province AND l.stopdate = s.taskdate)
 GROUP BY d.passport, d.fullname;
+d
