@@ -367,8 +367,8 @@ FROM drivers d
                            COUNT(*) AS total_prestamos,
                            SUM(CASE
                                    WHEN l.return IS NULL
-                                       THEN 1
-                                   ELSE 0
+                                       THEN 1 -- Suma 1 cada vez que el valor return esté vacío (NULL)
+                                   ELSE 0 -- Suma 0 en los demás casos
                                END) AS no_devueltos
                     FROM services s
                              JOIN loans l ON (l.stopdate = s.taskdate) AND (l.town = s.town) AND (l.province = s.province) -- loans conecta con services
