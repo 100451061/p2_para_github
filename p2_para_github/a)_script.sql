@@ -294,20 +294,23 @@ CREATE TABLE posts
 DROP VIEW BoreBooks;
 
 CREATE OR REPLACE VIEW BoreBooks AS
+SELECT DISTINCT b.title, b.author
 
-SELECT DISTINCT b.title,
-                b.author
-
-FROM (SELECT title, author
-      FROM editions
-      GROUP BY title, author
-      HAVING COUNT(DISTINCT language) >= 3) sub1
+FROM ( -- Subconsulta sub1: libros con ediciones en al menos 3 idiomas distintos
+         SELECT title, author
+         FROM editions
+         GROUP BY title, author
+         HAVING COUNT(DISTINCT language) >= 3) sub1
          JOIN books b ON (sub1.title = b.title) AND (sub1.author = b.author)
-         JOIN editions e ON (e.title = b.title) AND (e.author = b.author)
-         LEFT JOIN copies c ON (c.isbn = e.isbn)
-         LEFT JOIN loans l ON (l.signature = c.signature)
 
-WHERE l.signature IS NULL; -- cuyas copias nunca se han prestado. output: 102 registros
+WHERE NOT EXISTS (
+    -- Comprobamos que ninguna edición del libro haya tenido copias prestadas
+    SELECT 1
+    FROM editions e
+             JOIN copies c ON (c.isbn = e.isbn)
+             JOIN loans l ON (l.signature = c.signature)
+    WHERE e.title = b.title
+      AND e.author = b.author);
 
 commit;
 
