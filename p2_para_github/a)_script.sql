@@ -304,11 +304,11 @@ WHERE l.signature IS NULL
                               FROM editions e
                               GROUP BY e.title, e.author
                               HAVING COUNT(DISTINCT language) >= 3);
-
 commit;
 
 select *
-from BoreBooks;
+from BoreBooks
+where rownum <= 10;
 
 
 
@@ -374,8 +374,10 @@ FROM drivers d
                              JOIN loans l ON (l.stopdate = s.taskdate) AND (l.town = s.town) AND (l.province = s.province) -- loans conecta con services
                     GROUP BY s.passport) sub4 ON (sub4.passport = d.passport); -- sub4 conecta con drivers (sub consulta 4)
 
+
 COMMIT;
 
 
 SELECT *
-FROM informe_empleados;
+FROM informe_empleados
+where rownum <= 10;
