@@ -438,7 +438,7 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
         INSERT INTO loans (signature, user_id, stopdate, town, province, type, time, return)
         VALUES (p_signature,
                 current_user,
-                DATE '2025-03-30', -- Ajusta a la fecha que uses en services
+                DATE '2025-05-10', -- Ajusta a la fecha que uses en services
                 'TestTown', -- Ajusta al municipio que creaste
                 'TestProv',
                 'L', -- 'L' = préstamo
