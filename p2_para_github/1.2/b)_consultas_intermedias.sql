@@ -288,3 +288,401 @@ CREATE TABLE posts
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+----------------------------------------------------------------------
+-- 0) LIMPIEZA: BORRAR EL PACKAGE (si ya existía)
+----------------------------------------------------------------------
+DROP PACKAGE foundicu;
+
+----------------------------------------------------------------------
+-- 1) ACTIVAR SALIDA DE DBMS_OUTPUT
+----------------------------------------------------------------------
+SET SERVEROUTPUT ON;
+
+----------------------------------------------------------------------
+-- 2) PACKAGE foundicu (SPEC)
+----------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE foundicu AS
+    ----------------------------------------------------------------------------
+    -- Variable global para almacenar el usuario de la práctica,
+    -- coincidente con la columna users.user_id
+    ----------------------------------------------------------------------------
+    current_user CHAR(10);
+
+    ----------------------------------------------------------------------------
+    -- Para establecer el usuario actual
+    ----------------------------------------------------------------------------
+    PROCEDURE set_current_user(p_user_id CHAR);
+
+    ----------------------------------------------------------------------------
+    -- Procedimientos requeridos por el enunciado
+    ----------------------------------------------------------------------------
+    PROCEDURE insertar_prestamo(p_signature CHAR);
+    PROCEDURE insertar_reserva(p_isbn VARCHAR2, p_reserva_date DATE);
+    PROCEDURE registrar_devolucion(p_signature CHAR);
+
+END foundicu;
+/
+
+----------------------------------------------------------------------
+-- 3) PACKAGE BODY foundicu
+----------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE BODY foundicu AS
+    --------------------------------------------------------------------------
+    -- 3.1) Procedimiento para fijar el usuario actual
+    --------------------------------------------------------------------------
+    PROCEDURE set_current_user(p_user_id CHAR) IS
+    BEGIN
+        current_user := p_user_id;
+        DBMS_OUTPUT.PUT_LINE('Usuario actual establecido en: ' || p_user_id);
+    END set_current_user;
+
+    --------------------------------------------------------------------------
+    -- 3.2) insertar_prestamo
+    --------------------------------------------------------------------------
+    PROCEDURE insertar_prestamo(p_signature CHAR) IS
+        v_ban_up2        DATE;
+        v_reserva_count  NUMBER;
+        v_loans_active   NUMBER;
+        v_copy_available NUMBER;
+    BEGIN
+        -----------------------------------------------------------------------
+        -- (1) Verificar si current_user existe en la tabla users
+        -----------------------------------------------------------------------
+        SELECT ban_up2
+        INTO v_ban_up2
+        FROM users
+        WHERE user_id = current_user;
+
+        -----------------------------------------------------------------------
+        -- (2) Verificar si el usuario está sancionado (ban_up2 > SYSDATE)
+        -----------------------------------------------------------------------
+        IF v_ban_up2 IS NOT NULL AND v_ban_up2 > SYSDATE THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || current_user || ' sancionado hasta ' || v_ban_up2);
+            RETURN;
+        END IF;
+
+        -----------------------------------------------------------------------
+        -- (3) Verificar si hay una reserva para HOY en esa signatura
+        -----------------------------------------------------------------------
+        SELECT COUNT(*)
+        INTO v_reserva_count
+        FROM loans
+        WHERE signature = p_signature
+          AND user_id = current_user
+          AND type = 'R' -- 'R' = reserva
+          AND return IS NULL
+          AND stopdate = TRUNC(SYSDATE);
+
+        IF v_reserva_count > 0 THEN
+            -- Convertir la reserva en préstamo (UPDATE type='L')
+            UPDATE loans
+            SET type = 'L'
+            WHERE signature = p_signature
+              AND user_id = current_user
+              AND type = 'R'
+              AND return IS NULL
+              AND stopdate = TRUNC(SYSDATE);
+
+            DBMS_OUTPUT.PUT_LINE('Reserva convertida en préstamo para ' || current_user);
+            RETURN;
+        END IF;
+
+        -----------------------------------------------------------------------
+        -- (3b) Si NO hay reserva para hoy, intentar préstamo
+        -- Verificamos disponibilidad de la copia (básico: no está en uso)
+        -----------------------------------------------------------------------
+        SELECT COUNT(*)
+        INTO v_copy_available
+        FROM copies c
+                 LEFT JOIN loans l ON c.signature = l.signature
+        WHERE c.signature = p_signature
+          AND (l.signature IS NULL OR l.return IS NOT NULL);
+
+        IF v_copy_available = 0 THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: La copia ' || p_signature || ' no está disponible.');
+            RETURN;
+        END IF;
+
+        -----------------------------------------------------------------------
+        -- (4) Verificar que el usuario no supere su límite de préstamos+reservas
+        -----------------------------------------------------------------------
+        SELECT COUNT(*)
+        INTO v_loans_active
+        FROM loans
+        WHERE user_id = current_user
+          AND return IS NULL;
+        -- activo
+
+        -- Ejemplo: límite de 5
+        IF v_loans_active >= 5 THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: Límite de 5 préstamos/reservas para ' ||
+                                 current_user || '.');
+            RETURN;
+        END IF;
+
+        -----------------------------------------------------------------------
+        -- (5) Insertar el préstamo
+        --     (town, province, stopdate) deben existir en services
+        -----------------------------------------------------------------------
+        INSERT INTO loans (signature, user_id, stopdate, town, province, type, time, return)
+        VALUES (p_signature,
+                current_user,
+                DATE '2025-05-10', -- Ajusta a la fecha que uses en services
+                'TestTown', -- Ajusta al municipio que creaste
+                'TestProv',
+                'L', -- 'L' = préstamo
+                14, -- 14 días
+                NULL);
+
+        DBMS_OUTPUT.PUT_LINE('Préstamo insertado: copia ' || p_signature || ' para usuario ' || current_user || '.');
+
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: El usuario ' || current_user || ' no existe en tabla users o la copia no se halló.');
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR en insertar_prestamo: ' || SQLERRM);
+    END insertar_prestamo;
+
+    --------------------------------------------------------------------------
+    -- 3.3) insertar_reserva
+    --------------------------------------------------------------------------
+    PROCEDURE insertar_reserva(p_isbn VARCHAR2, p_reserva_date DATE) IS
+        v_ban_up2      DATE;
+        v_loans_active NUMBER;
+        v_signature    copies.signature%TYPE;
+    BEGIN
+        -----------------------------------------------------------------------
+        -- (1) Verificar usuario actual en tabla users
+        -----------------------------------------------------------------------
+        SELECT ban_up2
+        INTO v_ban_up2
+        FROM users
+        WHERE user_id = current_user;
+
+        -----------------------------------------------------------------------
+        -- (2) Verificar sanción
+        -----------------------------------------------------------------------
+        IF v_ban_up2 IS NOT NULL AND v_ban_up2 > SYSDATE THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || current_user || ' sancionado hasta ' || v_ban_up2);
+            RETURN;
+        END IF;
+
+        -----------------------------------------------------------------------
+        -- (3) Verificar límite
+        -----------------------------------------------------------------------
+        SELECT COUNT(*)
+        INTO v_loans_active
+        FROM loans
+        WHERE user_id = current_user
+          AND return IS NULL;
+
+        IF v_loans_active >= 5 THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: Límite activo de 5 préstamos/reservas para ' || current_user);
+            RETURN;
+        END IF;
+
+        -----------------------------------------------------------------------
+        -- (4) Buscar una copia libre de ese ISBN para [p_reserva_date, p_reserva_date+14]
+        -----------------------------------------------------------------------
+        SELECT c.signature
+        INTO v_signature
+        FROM copies c
+        WHERE c.isbn = p_isbn
+          AND NOT EXISTS (SELECT 1
+                          FROM loans l
+                          WHERE l.signature = c.signature
+                            AND l.return IS NULL
+                            AND l.stopdate BETWEEN p_reserva_date AND (p_reserva_date + 14))
+          AND ROWNUM = 1;
+
+        -----------------------------------------------------------------------
+        -- (5) Insertar reserva (town,province,stopdate) -> services
+        -----------------------------------------------------------------------
+        INSERT INTO loans(signature, user_id, stopdate, town, province, type, time, return)
+        VALUES (v_signature,
+                current_user,
+                p_reserva_date,
+                'TestTown', -- Debe existir en services
+                'TestProv',
+                'R', -- 'R' = reserva
+                0,
+                NULL);
+
+        DBMS_OUTPUT.PUT_LINE('Reserva creada: copia ' || v_signature || ' para usuario ' || current_user);
+
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: No hay copia disponible para ISBN=' || p_isbn || ' o usuario ' || current_user || ' no existe.');
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR en insertar_reserva: ' || SQLERRM);
+    END insertar_reserva;
+
+    --------------------------------------------------------------------------
+    -- 3.4) registrar_devolucion
+    --------------------------------------------------------------------------
+    PROCEDURE registrar_devolucion(p_signature CHAR) IS
+        v_count NUMBER;
+    BEGIN
+        -----------------------------------------------------------------------
+        -- (1) Verificar si hay un préstamo activo (type='L') para current_user
+        -----------------------------------------------------------------------
+        SELECT COUNT(*)
+        INTO v_count
+        FROM loans
+        WHERE signature = p_signature
+          AND user_id = current_user
+          AND type = 'L'
+          AND return IS NULL;
+
+        IF v_count = 0 THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: El usuario ' || current_user || ' no tiene un préstamo activo para ' || p_signature);
+            RETURN;
+        END IF;
+
+        -----------------------------------------------------------------------
+        -- (2) Registrar devolución (return=SYSDATE)
+        -----------------------------------------------------------------------
+        UPDATE loans
+        SET return = SYSDATE
+        WHERE signature = p_signature
+          AND user_id = current_user
+          AND type = 'L'
+          AND return IS NULL;
+
+        DBMS_OUTPUT.PUT_LINE('Devolución registrada para ' || current_user || ' y la copia ' || p_signature);
+
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: No se encontró la copia ' || p_signature || ' o el usuario ' || current_user || ' en loans.');
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR en registrar_devolucion: ' || SQLERRM);
+    END registrar_devolucion;
+
+END foundicu;
+/
+
+----------------------------------------------------------------------
+-- 4) DATOS NECESARIOS PARA SATISFACER LAS FOREIGN KEYS
+--    (town, province, stopdate) en loans -> services
+----------------------------------------------------------------------
+-- (a) municipalidades
+INSERT INTO municipalities (town, province, population)
+VALUES ('TestTown', 'TestProv', 1000);
+COMMIT;
+
+-- (b) routes
+INSERT INTO routes(route_id)
+VALUES ('R0001');
+COMMIT;
+
+-- (c) stops
+INSERT INTO stops(town, province, address, route_id, stoptime)
+VALUES ('TestTown', 'TestProv', 'Some Address 123', 'R0001', 100);
+COMMIT;
+
+-- (d) bibuses
+INSERT INTO bibuses (plate, last_itv, next_itv)
+VALUES ('PLATE001', DATE '2021-01-01', DATE '2025-01-01');
+COMMIT;
+
+-- (e) assign_bus
+INSERT INTO assign_bus (plate, taskdate, route_id)
+VALUES ('PLATE001', DATE '2025-05-10', 'R0001');
+COMMIT;
+
+-- (f) drivers
+INSERT INTO drivers (passport, email, fullname, birthdate, phone, address, cont_start)
+VALUES ('PASS000000000000',
+        'driver@demo.com',
+        'Driver Demo',
+        DATE '1970-01-01',
+        999999999,
+        'Driver Address',
+        DATE '2020-01-01');
+COMMIT;
+
+-- (g) assign_drv
+INSERT INTO assign_drv (passport, taskdate, route_id)
+VALUES ('PASS000000000000', DATE '2025-05-10', 'R0001');
+COMMIT;
+
+-- (h) services
+INSERT INTO services (town, province, bus, taskdate, passport)
+VALUES ('TestTown', 'TestProv', 'PLATE001', DATE '2025-05-10', 'PASS000000000000');
+COMMIT;
+
+----------------------------------------------------------------------
+-- 5) CREAR LIBRO, EDICIÓN Y COPIA
+----------------------------------------------------------------------
+INSERT INTO books (title, author)
+VALUES ('DummyTitle', 'DummyAuthor');
+COMMIT;
+
+INSERT INTO editions (isbn, title, author, national_lib_id)
+VALUES ('978-0-13-110362-7', 'DummyTitle', 'DummyAuthor', 'NLI00001');
+COMMIT;
+
+INSERT INTO copies (signature, isbn)
+VALUES ('S0001', '978-0-13-110362-7');
+COMMIT;
+
+----------------------------------------------------------------------
+-- 6) USUARIO (U000000001) -> USERS
+----------------------------------------------------------------------
+INSERT INTO users (user_id, id_card, name, surname1, birthdate,
+                   town, province, address, phone, type)
+VALUES ('U000000001',
+        'IDCARD1234567890',
+        'TestName',
+        'TestSurname',
+        DATE '1985-01-01',
+        'TestTown',
+        'TestProv',
+        'User Address 123',
+        999999999,
+        'P');
+COMMIT;
+
+----------------------------------------------------------------------
+-- 7) PRUEBAS
+----------------------------------------------------------------------
+BEGIN
+    foundicu.set_current_user('U000000001'); -- Debe coincidir con el user_id
+END;
+/
+
+-- a) Insertar reserva
+BEGIN
+    foundicu.insertar_reserva('978-0-13-110362-7', DATE '2025-05-10');
+END;
+/
+
+-- b) Insertar préstamo
+BEGIN
+    foundicu.insertar_prestamo('S0001');
+END;
+/
+
+-- c) Registrar devolución
+BEGIN
+    foundicu.registrar_devolucion('S0001');
+END;
+/
+
+----------------------------------------------------------------------
+-- 8) VERIFICAR RESULTADOS
+----------------------------------------------------------------------
+SELECT *
+FROM loans
+WHERE user_id = 'U000000001';
