@@ -292,181 +292,274 @@ CREATE TABLE posts
 
 SET SERVEROUTPUT ON;
 
+---------------------------------------------------------------
+-- PACKAGE foundicu (SPEC)
+---------------------------------------------------------------
 CREATE OR REPLACE PACKAGE foundicu AS
+    ----------------------------------------------------------------------------
+    -- Variable global para almacenar el usuario de la práctica,
+    -- coincidente con la columna users.user_id
+    ----------------------------------------------------------------------------
+    current_user CHAR(10);
+
+    ----------------------------------------------------------------------------
+    -- Para establecer el usuario actual
+    ----------------------------------------------------------------------------
+    PROCEDURE set_current_user(p_user_id CHAR);
+
+    ----------------------------------------------------------------------------
+    -- Procedimientos requeridos por el enunciado
+    ----------------------------------------------------------------------------
     PROCEDURE insertar_prestamo(p_signature CHAR);
-    PROCEDURE insertar_reserva(p_isbn VARCHAR2, p_fecha DATE);
+    PROCEDURE insertar_reserva(p_isbn VARCHAR2, p_reserva_date DATE);
     PROCEDURE registrar_devolucion(p_signature CHAR);
+
 END foundicu;
 /
 
 
 
+---------------------------------------------------------------
+-- PACKAGE BODY foundicu
+---------------------------------------------------------------
 CREATE OR REPLACE PACKAGE BODY foundicu AS
-
-    -- Procedimiento 1: Insertar préstamo
-    PROCEDURE insertar_prestamo(p_signature CHAR) IS
-        v_user_id        CHAR(10);
-        v_cuenta         NUMBER := 0;
-        v_sancionado     DATE;
-        v_fecha_hoy      DATE   := SYSDATE;
-        v_existe_reserva NUMBER := 0;
-        v_disponible     NUMBER := 0;
-
+    ------------------------------------------------------------------------------
+    -- Procedimiento para fijar el usuario actual
+    ------------------------------------------------------------------------------
+    PROCEDURE set_current_user(p_user_id CHAR) IS
     BEGIN
-        -- Obtener usuario actual (esto depende de cómo determines el usuario en tu sistema)
-        SELECT USER INTO v_user_id FROM dual;
+        current_user := p_user_id;
+        DBMS_OUTPUT.PUT_LINE('Usuario actual establecido en: ' || p_user_id);
+    END set_current_user;
 
-        -- Verificar si el usuario existe
-        SELECT COUNT(*) INTO v_cuenta FROM users WHERE user_id = v_user_id;
-        IF v_cuenta = 0 THEN
-            RAISE_APPLICATION_ERROR(-20001, 'Usuario actual no existe');
-        END IF;
+    ------------------------------------------------------------------------------
+    -- insertar_prestamo
+    ------------------------------------------------------------------------------
+    PROCEDURE insertar_prestamo(p_signature CHAR) IS
+        v_ban_up2        DATE;
+        v_reserva_count  NUMBER;
+        v_loans_active   NUMBER;
+        v_copy_available NUMBER;
+    BEGIN
+        ---------------------------------------------------------------------------
+        -- (1) Verificar si current_user existe en la tabla users
+        ---------------------------------------------------------------------------
+        SELECT ban_up2
+        INTO v_ban_up2
+        FROM users
+        WHERE user_id = current_user;
 
-        -- Verificar si tiene una reserva activa para hoy
-        SELECT COUNT(*)
-        INTO v_existe_reserva
-        FROM loans
-        WHERE signature = p_signature
-          AND user_id = v_user_id
-          AND stopdate = v_fecha_hoy
-          AND type = 'R';
-
-        IF v_existe_reserva = 1 THEN
-            -- Convertir la reserva en préstamo (UPDATE)
-            UPDATE loans
-            SET type = 'P',
-                time = 0
-            WHERE signature = p_signature
-              AND user_id = v_user_id
-              AND stopdate = v_fecha_hoy;
-            COMMIT;
+        ---------------------------------------------------------------------------
+        -- (2) Verificar si el usuario está sancionado (ban_up2 > SYSDATE)
+        ---------------------------------------------------------------------------
+        IF v_ban_up2 IS NOT NULL AND v_ban_up2 > SYSDATE THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || current_user || ' sancionado hasta ' || v_ban_up2);
             RETURN;
         END IF;
 
-        -- Si no tiene reserva, verificar condiciones:
-        SELECT ban_up2 INTO v_sancionado FROM users WHERE user_id = v_user_id;
-        IF v_sancionado IS NOT NULL AND v_sancionado > v_fecha_hoy THEN
-            RAISE_APPLICATION_ERROR(-20002, 'Usuario está sancionado');
-        END IF;
-
-        -- Verificar límite de préstamos + reservas
+        ---------------------------------------------------------------------------
+        -- (3) Verificar si hay una reserva para HOY en esa signatura
+        ---------------------------------------------------------------------------
         SELECT COUNT(*)
-        INTO v_cuenta
-        FROM loans
-        WHERE user_id = v_user_id
-          AND return IS NULL;
-
-        IF v_cuenta >= 5 THEN
-            RAISE_APPLICATION_ERROR(-20003, 'Usuario ha alcanzado el límite de préstamos');
-        END IF;
-
-        -- Verificar disponibilidad (sin conflictos de fechas en los próximos 14 días)
-        SELECT COUNT(*)
-        INTO v_disponible
+        INTO v_reserva_count
         FROM loans
         WHERE signature = p_signature
+          AND user_id = current_user
+          AND type = 'R' -- 'R' = reserva
           AND return IS NULL
-          AND stopdate BETWEEN v_fecha_hoy AND v_fecha_hoy + 14;
+          AND stopdate = TRUNC(SYSDATE);
 
-        IF v_disponible > 0 THEN
-            RAISE_APPLICATION_ERROR(-20004, 'Copia no disponible para préstamo');
+        IF v_reserva_count > 0 THEN
+            -------------------------------------------------------------------------
+            -- (3a) Convertir la reserva en préstamo
+            -------------------------------------------------------------------------
+            UPDATE loans
+            SET type = 'L' -- 'L' = préstamo
+            WHERE signature = p_signature
+              AND user_id = current_user
+              AND type = 'R'
+              AND return IS NULL
+              AND stopdate = TRUNC(SYSDATE);
+
+            DBMS_OUTPUT.PUT_LINE('Reserva convertida en préstamo para ' || current_user);
+            RETURN;
         END IF;
 
-        -- Insertar préstamo nuevo
-        INSERT INTO loans(signature, user_id, stopdate, town, province, type, time)
-        SELECT p_signature, v_user_id, v_fecha_hoy, town, province, 'P', 0
-        FROM services
-        WHERE taskdate = v_fecha_hoy
-          AND passport IN (SELECT passport
-                           FROM assign_drv
-                           WHERE taskdate = v_fecha_hoy)
-          AND ROWNUM = 1;
-
-        COMMIT;
-    END insertar_prestamo;
-
-    -- Procedimiento 2: Insertar reserva
-    PROCEDURE insertar_reserva(p_isbn VARCHAR2, p_fecha DATE) IS
-        v_user_id    CHAR(10);
-        v_signature  CHAR(5);
-        v_sancionado DATE;
-        v_cuenta     NUMBER := 0;
-    BEGIN
-        SELECT USER INTO v_user_id FROM dual;
-
-        -- Comprobaciones similares al anterior:
-        SELECT COUNT(*) INTO v_cuenta FROM users WHERE user_id = v_user_id;
-        IF v_cuenta = 0 THEN
-            RAISE_APPLICATION_ERROR(-20011, 'Usuario no existe');
-        END IF;
-
-        SELECT ban_up2 INTO v_sancionado FROM users WHERE user_id = v_user_id;
-        IF v_sancionado IS NOT NULL AND v_sancionado > SYSDATE THEN
-            RAISE_APPLICATION_ERROR(-20012, 'Usuario está sancionado');
-        END IF;
-
+        ---------------------------------------------------------------------------
+        -- (3b) Si NO hay reserva, intentar préstamo nuevo:
+        -- Verificar disponibilidad de la copia (no esté en uso en las próximas 2 semanas)
+        ---------------------------------------------------------------------------
         SELECT COUNT(*)
-        INTO v_cuenta
-        FROM loans
-        WHERE user_id = v_user_id
-          AND return IS NULL;
+        INTO v_copy_available
+        FROM copies c
+                 LEFT JOIN loans l ON c.signature = l.signature
+        WHERE c.signature = p_signature
+          AND (l.signature IS NULL OR l.return IS NOT NULL);
+        -- Ajusta si quieres filtrar el periodo exacto de 14 días
 
-        IF v_cuenta >= 5 THEN
-            RAISE_APPLICATION_ERROR(-20013, 'Usuario ha alcanzado el cupo de préstamos');
+        IF v_copy_available = 0 THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: La copia ' || p_signature || ' no está disponible.');
+            RETURN;
         END IF;
 
-        -- Buscar copia libre
-        SELECT signature
-        INTO v_signature
-        FROM copies
-        WHERE isbn = p_isbn
-          AND signature NOT IN (SELECT signature
-                                FROM loans
-                                WHERE stopdate BETWEEN p_fecha AND p_fecha + 14
-                                  AND return IS NULL)
-          AND ROWNUM = 1;
+        ---------------------------------------------------------------------------
+        -- (4) Verificar que el usuario no supere su límite de préstamos+reservas
+        ---------------------------------------------------------------------------
+        SELECT COUNT(*)
+        INTO v_loans_active
+        FROM loans
+        WHERE user_id = current_user
+          AND return IS NULL;
+        -- no devueltos
 
-        -- Insertar la reserva
-        INSERT INTO loans(signature, user_id, stopdate, town, province, type, time)
-        SELECT v_signature, v_user_id, p_fecha, town, province, 'R', 0
-        FROM services
-        WHERE taskdate = p_fecha
-          AND ROWNUM = 1;
+        -- Ejemplo: límite de 5 activos
+        IF v_loans_active >= 5 THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: Límite de 5 préstamos+reservas activo para ' || current_user || '.');
+            RETURN;
+        END IF;
 
-        COMMIT;
+        ---------------------------------------------------------------------------
+        -- (5) Insertar el préstamo
+        ---------------------------------------------------------------------------
+        INSERT INTO loans (signature, user_id, stopdate, town, province, type, time, return)
+        VALUES (p_signature,
+                current_user,
+                TRUNC(SYSDATE),
+                '??', -- Ajusta town
+                '??', -- Ajusta province
+                'L', -- 'L' = préstamo
+                14, -- 14 días
+                NULL);
+
+        DBMS_OUTPUT.PUT_LINE('Préstamo insertado: copia ' || p_signature || ' para usuario ' || current_user || '.');
+
     EXCEPTION
         WHEN NO_DATA_FOUND THEN
-            RAISE_APPLICATION_ERROR(-20014, 'No hay copias disponibles para reservar');
-    END insertar_reserva;
+            DBMS_OUTPUT.PUT_LINE('ERROR: El usuario ' || current_user || ' no existe en tabla users, o la copia no se halló.');
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR en insertar_prestamo: ' || SQLERRM);
+    END insertar_prestamo;
 
-    -- Procedimiento 3: Registrar devolución
-    PROCEDURE registrar_devolucion(p_signature CHAR) IS
-        v_user_id CHAR(10);
-        v_fecha   DATE   := SYSDATE;
-        v_existe  NUMBER := 0;
+    ------------------------------------------------------------------------------
+    -- insertar_reserva
+    ------------------------------------------------------------------------------
+    PROCEDURE insertar_reserva(p_isbn VARCHAR2, p_reserva_date DATE) IS
+        v_ban_up2      DATE;
+        v_loans_active NUMBER;
+        v_signature    copies.signature%TYPE;
     BEGIN
-        SELECT USER INTO v_user_id FROM dual;
+        ---------------------------------------------------------------------------
+        -- (1) Verificar usuario actual en tabla users
+        ---------------------------------------------------------------------------
+        SELECT ban_up2
+        INTO v_ban_up2
+        FROM users
+        WHERE user_id = current_user;
 
-        -- Verificar si el usuario tiene ese préstamo pendiente
-        SELECT COUNT(*)
-        INTO v_existe
-        FROM loans
-        WHERE signature = p_signature
-          AND user_id = v_user_id
-          AND return IS NULL;
-
-        IF v_existe = 0 THEN
-            RAISE_APPLICATION_ERROR(-20021, 'No tienes ese préstamo activo');
+        ---------------------------------------------------------------------------
+        -- (2) Verificar sanción
+        ---------------------------------------------------------------------------
+        IF v_ban_up2 IS NOT NULL AND v_ban_up2 > SYSDATE THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || current_user || ' sancionado hasta ' || v_ban_up2);
+            RETURN;
         END IF;
 
-        -- Actualizar devolución
-        UPDATE loans
-        SET return = v_fecha
-        WHERE signature = p_signature
-          AND user_id = v_user_id
+        ---------------------------------------------------------------------------
+        -- (3) Verificar límite
+        ---------------------------------------------------------------------------
+        SELECT COUNT(*)
+        INTO v_loans_active
+        FROM loans
+        WHERE user_id = current_user
           AND return IS NULL;
 
-        COMMIT;
+        IF v_loans_active >= 5 THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: Límite activo de 5 préstamos/reservas para ' || current_user);
+            RETURN;
+        END IF;
+
+        ---------------------------------------------------------------------------
+        -- (4) Buscar una copia libre de ese ISBN para [p_reserva_date, p_reserva_date+14]
+        --    Aquí se simplifica la lógica; ajusta según tu diseño
+        ---------------------------------------------------------------------------
+        SELECT c.signature
+        INTO v_signature
+        FROM copies c
+        WHERE c.isbn = p_isbn
+          AND NOT EXISTS (SELECT 1
+                          FROM loans l
+                          WHERE l.signature = c.signature
+                            AND l.return IS NULL
+                            AND l.stopdate BETWEEN p_reserva_date AND (p_reserva_date + 14))
+          AND ROWNUM = 1;
+
+        ---------------------------------------------------------------------------
+        -- (5) Insertar reserva
+        ---------------------------------------------------------------------------
+        INSERT INTO loans(signature, user_id, stopdate, town, province, type, time, return)
+        VALUES (v_signature,
+                current_user,
+                p_reserva_date,
+                '??',
+                '??',
+                'R', -- 'R' = reserva
+                0,
+                NULL);
+
+        DBMS_OUTPUT.PUT_LINE('Reserva creada: copia ' || v_signature || ' para usuario ' || current_user);
+
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: No hay copia disponible para ISBN=' || p_isbn || ' o usuario ' || current_user || ' no existe.');
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR en insertar_reserva: ' || SQLERRM);
+    END insertar_reserva;
+
+    ------------------------------------------------------------------------------
+    -- registrar_devolucion
+    ------------------------------------------------------------------------------
+    PROCEDURE registrar_devolucion(p_signature CHAR) IS
+        v_count NUMBER;
+    BEGIN
+        ---------------------------------------------------------------------------
+        -- (1) Verificar si hay un préstamo activo (type='L') para current_user
+        ---------------------------------------------------------------------------
+        SELECT COUNT(*)
+        INTO v_count
+        FROM loans
+        WHERE signature = p_signature
+          AND user_id = current_user
+          AND type = 'L'
+          AND return IS NULL;
+
+        IF v_count = 0 THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: El usuario ' || current_user || ' no tiene un préstamo activo para la copia ' || p_signature);
+            RETURN;
+        END IF;
+
+        ---------------------------------------------------------------------------
+        -- (2) Registrar la devolución (colocar return = SYSDATE)
+        ---------------------------------------------------------------------------
+        UPDATE loans
+        SET return = SYSDATE
+        WHERE signature = p_signature
+          AND user_id = current_user
+          AND type = 'L'
+          AND return IS NULL;
+
+        DBMS_OUTPUT.PUT_LINE('Devolución registrada para el usuario ' || current_user || ' y la copia ' || p_signature);
+
+        ---------------------------------------------------------------------------
+        -- (3) (Opcional) calcular retraso, sancionar, etc.
+        ---------------------------------------------------------------------------
+
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: No se encontró la copia ' || p_signature || ' o el usuario ' || current_user || ' en loans.');
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR en registrar_devolucion: ' || SQLERRM);
     END registrar_devolucion;
 
 END foundicu;
+/
+
