@@ -614,7 +614,17 @@ drop trigger trg_my_loans_ins;
 drop trigger trg_my_loans_del;
 drop trigger trg_my_loans_upd;
 
--- me aseguro de que el usuario actual sea U000000001
+--INSERT INTO copies(signature, isbn)
+--VALUES ('S001', '978-0-13-110362-7');
+--COMMIT;
+
+
+--INSERT INTO loans(signature, user_id, stopdate, town, province, type, time)
+--VALUES ('S001', 'U000000001', DATE '2025-05-10', 'TestTown', 'TestProv', 'L', 14);
+--COMMIT;
+
+-- Me aseguro de que el usuario actual sea U000000001
+
 BEGIN
     foundicu.set_current_user('U000000001');
 END;
@@ -632,7 +642,7 @@ SELECT l.signature,
        p.dislikes
 FROM loans l
          LEFT JOIN posts p
-                   ON (p.signature = l.signature) AND (p.user_id = l.user_id) AND (p.post_date = l.stopdate)
+                   ON (p.signature = l.signature) AND (p.user_id = l.user_id) AND (p.stopdate = l.stopdate)
 WHERE l.user_id = my_current_user();
 
 
