@@ -726,3 +726,111 @@ BEGIN
 END;
 /
 
+
+--apartado c)
+
+CREATE OR REPLACE VIEW my_reservations AS
+SELECT l.signature,
+       l.user_id,
+       l.stopdate,
+       l.town,
+       l.province,
+       l.type,
+       l.time,
+       l.return
+FROM loans l
+WHERE l.user_id = my_current_user()
+  AND l.type = 'R';
+
+
+
+CREATE OR REPLACE TRIGGER trg_my_reservations_ins
+    INSTEAD OF INSERT
+    ON my_reservations
+    FOR EACH ROW
+DECLARE
+    v_isbn      copies.isbn%TYPE;
+    v_signature copies.signature%TYPE;
+BEGIN
+    -- Buscar el ISBN de la signatura
+    SELECT isbn
+    INTO v_isbn
+    FROM copies
+    WHERE signature = :NEW.signature;
+
+    -- Buscar si hay una copia de ese ISBN libre en ese rango
+    SELECT signature
+    INTO v_signature
+    FROM copies
+    WHERE isbn = v_isbn
+      AND NOT EXISTS (SELECT 1
+                      FROM loans
+                      WHERE signature = copies.signature
+                        AND return IS NULL
+                        AND stopdate BETWEEN :NEW.stopdate AND (:NEW.stopdate + 14))
+      AND ROWNUM = 1;
+
+    -- Insertar la reserva
+    INSERT INTO loans(signature, user_id, stopdate, town, province, type, time, return)
+    VALUES (v_signature, my_current_user(), :NEW.stopdate, :NEW.town, :NEW.province, 'R', 0, NULL);
+END;
+
+
+CREATE OR REPLACE TRIGGER trg_my_reservations_del
+    INSTEAD OF DELETE
+    ON my_reservations
+    FOR EACH ROW
+BEGIN
+    DELETE
+    FROM loans
+    WHERE signature = :OLD.signature
+      AND user_id = :OLD.user_id
+      AND stopdate = :OLD.stopdate
+      AND type = 'R'
+      AND return IS NULL;
+END;
+/
+
+
+CREATE OR REPLACE TRIGGER trg_my_reservations_upd
+    INSTEAD OF UPDATE
+    ON my_reservations
+    FOR EACH ROW
+DECLARE
+    v_isbn      copies.isbn%TYPE;
+    v_signature copies.signature%TYPE;
+BEGIN
+    IF :NEW.stopdate <> :OLD.stopdate THEN
+        -- Buscar ISBN
+        SELECT isbn
+        INTO v_isbn
+        FROM copies
+        WHERE signature = :OLD.signature;
+
+        -- Verificar disponibilidad de copia del ISBN en la nueva fecha
+        SELECT signature
+        INTO v_signature
+        FROM copies
+        WHERE isbn = v_isbn
+          AND NOT EXISTS (SELECT 1
+                          FROM loans
+                          WHERE signature = copies.signature
+                            AND return IS NULL
+                            AND stopdate BETWEEN :NEW.stopdate AND (:NEW.stopdate + 14))
+          AND ROWNUM = 1;
+
+        -- Actualizar préstamo con la nueva copia y fecha
+        UPDATE loans
+        SET signature = v_signature,
+            stopdate  = :NEW.stopdate
+        WHERE signature = :OLD.signature
+          AND user_id = :OLD.user_id
+          AND stopdate = :OLD.stopdate
+          AND type = 'R'
+          AND return IS NULL;
+    ELSE
+        RAISE_APPLICATION_ERROR(-20001, 'Solo se permite cambiar la fecha de la reserva.');
+    END IF;
+END;
+/
+
