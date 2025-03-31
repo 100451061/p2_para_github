@@ -605,3 +605,114 @@ WITH READ ONLY;
 -- comprobamos la vista
 select *
 from my_data;
+
+
+-- apartado b)
+
+drop view my_loans;
+drop trigger trg_my_loans_ins;
+drop trigger trg_my_loans_del;
+drop trigger trg_my_loans_upd;
+
+-- me aseguro de que el usuario actual sea U000000001
+BEGIN
+    foundicu.set_current_user('U000000001');
+END;
+/
+
+CREATE OR REPLACE VIEW my_loans AS
+SELECT l.signature,
+       l.user_id,
+       l.stopdate,
+       l.type,              -- Ej: 'L' si es préstamo
+       l.return,            -- fecha de devolución si existe
+       p.text      AS post, -- renombramos "text" a "post"
+       p.post_date AS post_date,
+       p.likes,
+       p.dislikes
+FROM loans l
+         LEFT JOIN posts p
+                   ON (p.signature = l.signature) AND (p.user_id = l.user_id) AND (p.post_date = l.stopdate)
+WHERE l.user_id = my_current_user();
+
+
+-- Bloquear INSERT y DELETE con INSTEAD OF triggers. Así, si alguien hace INSERT INTO my_loans(...) o DELETE FROM my_loans..., saltará un error.
+CREATE OR REPLACE TRIGGER trg_my_loans_ins
+    INSTEAD OF INSERT
+    ON my_loans
+BEGIN
+    RAISE_APPLICATION_ERROR(-20002, 'No se permite insertar en la vista my_loans.');
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_my_loans_del
+    INSTEAD OF DELETE
+    ON my_loans
+BEGIN
+    RAISE_APPLICATION_ERROR(-20003, 'No se permite borrar en la vista my_loans.');
+END;
+/
+
+
+-- Permitir UPDATE solo de la columna post
+CREATE OR REPLACE TRIGGER trg_my_loans_upd
+    INSTEAD OF UPDATE
+    ON my_loans
+    FOR EACH ROW
+BEGIN
+    ------------------------------------------------------------------------
+    -- 1) Comprobar que NO se actualicen manualmente otras columnas
+    ------------------------------------------------------------------------
+    IF :NEW.signature <> :OLD.signature
+        OR :NEW.stopdate <> :OLD.stopdate
+        OR :NEW.user_id <> :OLD.user_id
+        OR :NEW.type <> :OLD.type
+        OR :NEW.return <> :OLD.return
+        OR :NEW.post_date <> :OLD.post_date
+        OR :NEW.likes <> :OLD.likes
+        OR :NEW.dislikes <> :OLD.dislikes
+    THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Solo se puede actualizar la columna post, no se permite modificar otras columnas.');
+    END IF;
+
+    ------------------------------------------------------------------------
+    -- 2) ¿Realmente cambió "post"?
+    ------------------------------------------------------------------------
+    IF :NEW.post <> :OLD.post THEN
+        --------------------------------------------------------------------
+        -- 2a) Si antes no había post => o no existía fila en posts
+        --------------------------------------------------------------------
+        IF :OLD.post IS NULL THEN
+            -- Actualizamos posts si ya existe la fila
+            UPDATE posts
+            SET text      = :NEW.post,
+                post_date = SYSDATE,
+                likes     = 0,
+                dislikes  = 0
+            WHERE signature = :OLD.signature
+              AND user_id = :OLD.user_id
+              AND stopdate = :OLD.stopdate;
+
+            IF SQL%ROWCOUNT = 0 THEN
+                -- Si no actualizó ninguna fila, es que no había un post en posts,
+                -- entonces lo insertamos
+                INSERT INTO posts(signature, user_id, stopdate, text, post_date, likes, dislikes)
+                VALUES (:OLD.signature, :OLD.user_id, :OLD.stopdate,
+                        :NEW.post, SYSDATE, 0, 0);
+            END IF;
+
+        ELSE
+            ----------------------------------------------------------------
+            -- 2b) Ya había post => Actualizar el texto y la fecha
+            ----------------------------------------------------------------
+            UPDATE posts
+            SET text      = :NEW.post,
+                post_date = SYSDATE
+            WHERE signature = :OLD.signature
+              AND user_id = :OLD.user_id
+              AND stopdate = :OLD.stopdate;
+        END IF;
+    END IF;
+END;
+/
+
