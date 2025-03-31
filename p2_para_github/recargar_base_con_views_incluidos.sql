@@ -258,19 +258,29 @@ CREATE TABLE posts
 -- -------------------------------------------
 
 -- heal books data, grouping by pk and projecting min
-INSERT INTO books(TITLE,AUTHOR,COUNTRY,LANGUAGE,PUB_DATE,ALT_TITLE,TOPIC,CONTENT,AWARDS)
-SELECT DISTINCT trim(TITLE),trim(MAIN_AUTHOR),min(trim(PUB_COUNTRY)),min(trim(ORIGINAL_LANGUAGE)),
-       min(to_number(PUB_DATE)),min(trim(ALT_TITLE)),min(trim(TOPIC)),min(trim(CONTENT_NOTES)),min(trim(AWARDS))
-FROM fsdb.acervus group by title,main_author
+INSERT INTO books(TITLE, AUTHOR, COUNTRY, LANGUAGE, PUB_DATE, ALT_TITLE, TOPIC, CONTENT, AWARDS)
+SELECT DISTINCT trim(TITLE),
+                trim(MAIN_AUTHOR),
+                min(trim(PUB_COUNTRY)),
+                min(trim(ORIGINAL_LANGUAGE)),
+                min(to_number(PUB_DATE)),
+                min(trim(ALT_TITLE)),
+                min(trim(TOPIC)),
+                min(trim(CONTENT_NOTES)),
+                min(trim(AWARDS))
+FROM fsdb.acervus
+group by title, main_author
 ;
 -- 181435 rows
 commit;
 
 --
 
-INSERT INTO More_Authors(TITLE,MAIN_AUTHOR,ALT_AUTHORS,MENTIONS)
-SELECT DISTINCT trim(TITLE),trim(MAIN_AUTHOR),trim(OTHER_AUTHORS),max(trim(MENTION_AUTHORS))
-FROM fsdb.acervus where trim(OTHER_AUTHORS) is not null group by (trim(TITLE),trim(MAIN_AUTHOR),trim(OTHER_AUTHORS))
+INSERT INTO More_Authors(TITLE, MAIN_AUTHOR, ALT_AUTHORS, MENTIONS)
+SELECT DISTINCT trim(TITLE), trim(MAIN_AUTHOR), trim(OTHER_AUTHORS), max(trim(MENTION_AUTHORS))
+FROM fsdb.acervus
+where trim(OTHER_AUTHORS) is not null
+group by (trim(TITLE), trim(MAIN_AUTHOR), trim(OTHER_AUTHORS))
 ;
 
 -- 23333 rows
@@ -278,13 +288,27 @@ FROM fsdb.acervus where trim(OTHER_AUTHORS) is not null group by (trim(TITLE),tr
 --
 
 -- same isbn can take different nat_lib_id; group by pk and project min
-INSERT INTO Editions(ISBN,TITLE,AUTHOR,LANGUAGE,ALT_LANGUAGES,EDITION,PUBLISHER,EXTENSION,
-       SERIES,COPYRIGHT,PUB_PLACE,DIMENSIONS,PHY_FEATURES,MATERIALS,NOTES,NATIONAL_LIB_ID,URL)
-SELECT DISTINCT trim(ISBN),min(trim(TITLE)),min(trim(MAIN_AUTHOR)),nvl(min(trim(MAIN_LANGUAGE)),'Spanish'),
-       min(trim(OTHER_LANGUAGES)),min(trim(EDITION)),min(trim(PUBLISHER)),min(trim(EXTENSION)),min(trim(SERIES)),
-       min(trim(COPYRIGHT)),min(trim(PUB_PLACE)),min(trim(DIMENSIONS)),min(trim(PHYSICAL_FEATURES)),
-       min(trim(ATTACHED_MATERIALS)),min(trim(NOTES)),min(trim(NATIONAL_LIB_ID)),min(trim(URL))
-FROM fsdb.acervus group by trim(isbn)
+INSERT INTO Editions(ISBN, TITLE, AUTHOR, LANGUAGE, ALT_LANGUAGES, EDITION, PUBLISHER, EXTENSION,
+                     SERIES, COPYRIGHT, PUB_PLACE, DIMENSIONS, PHY_FEATURES, MATERIALS, NOTES, NATIONAL_LIB_ID, URL)
+SELECT DISTINCT trim(ISBN),
+                min(trim(TITLE)),
+                min(trim(MAIN_AUTHOR)),
+                nvl(min(trim(MAIN_LANGUAGE)), 'Spanish'),
+                min(trim(OTHER_LANGUAGES)),
+                min(trim(EDITION)),
+                min(trim(PUBLISHER)),
+                min(trim(EXTENSION)),
+                min(trim(SERIES)),
+                min(trim(COPYRIGHT)),
+                min(trim(PUB_PLACE)),
+                min(trim(DIMENSIONS)),
+                min(trim(PHYSICAL_FEATURES)),
+                min(trim(ATTACHED_MATERIALS)),
+                min(trim(NOTES)),
+                min(trim(NATIONAL_LIB_ID)),
+                min(trim(URL))
+FROM fsdb.acervus
+group by trim(isbn)
 ;
 -- 240632 rows
 
@@ -293,17 +317,18 @@ commit;
 --
 
 -- one copy with null pk (skip it & document)
-INSERT INTO Copies(SIGNATURE,ISBN)
-SELECT DISTINCT trim(SIGNATURE),trim(ISBN)
-FROM fsdb.acervus where signature is not null
+INSERT INTO Copies(SIGNATURE, ISBN)
+SELECT DISTINCT trim(SIGNATURE), trim(ISBN)
+FROM fsdb.acervus
+where signature is not null
 ;
 -- 241572 rows
 commit;
 
 --
 
-INSERT INTO municipalities (TOWN,PROVINCE,POPULATION)
-SELECT DISTINCT trim(TOWN),trim(PROVINCE),trim(POPULATION)
+INSERT INTO municipalities (TOWN, PROVINCE, POPULATION)
+SELECT DISTINCT trim(TOWN), trim(PROVINCE), trim(POPULATION)
 FROM fsdb.busstops
 ;
 -- 1365 rows
@@ -317,49 +342,67 @@ FROM fsdb.busstops
 --
 
 -- there is an invalid date (29-02-1970); split into two cases
-INSERT INTO drivers (PASSPORT,EMAIL,FULLNAME,BIRTHDATE,PHONE,ADDRESS,CONT_START,CONT_END)
-SELECT DISTINCT trim(LIB_PASSPORT),trim(LIB_EMAIL),trim(LIB_FULLNAME),to_date(LIB_BIRTHDATE,'DD-MM-YYYY'),
-       to_number(LIB_PHONE),trim(LIB_ADDRESS),to_date(CONT_START,'DD.MM.YYYY'),to_date(CONT_END,'DD.MM.YYYY')
-FROM fsdb.busstops where lib_birthdate!='29-02-1970'
+INSERT INTO drivers (PASSPORT, EMAIL, FULLNAME, BIRTHDATE, PHONE, ADDRESS, CONT_START, CONT_END)
+SELECT DISTINCT trim(LIB_PASSPORT),
+                trim(LIB_EMAIL),
+                trim(LIB_FULLNAME),
+                to_date(LIB_BIRTHDATE, 'DD-MM-YYYY'),
+                to_number(LIB_PHONE),
+                trim(LIB_ADDRESS),
+                to_date(CONT_START, 'DD.MM.YYYY'),
+                to_date(CONT_END, 'DD.MM.YYYY')
+FROM fsdb.busstops
+where lib_birthdate != '29-02-1970'
 ;
 -- 12 rows
-INSERT INTO drivers (PASSPORT,EMAIL,FULLNAME,BIRTHDATE,PHONE,ADDRESS,CONT_START,CONT_END)
-SELECT DISTINCT trim(LIB_PASSPORT),trim(LIB_EMAIL),trim(LIB_FULLNAME),to_date('01-03-1970','DD-MM-YYYY'),
-       to_number(LIB_PHONE),trim(LIB_ADDRESS),to_date(CONT_START,'DD.MM.YYYY'),to_date(CONT_END,'DD.MM.YYYY')
-FROM fsdb.busstops where lib_birthdate='29-02-1970'
+INSERT INTO drivers (PASSPORT, EMAIL, FULLNAME, BIRTHDATE, PHONE, ADDRESS, CONT_START, CONT_END)
+SELECT DISTINCT trim(LIB_PASSPORT),
+                trim(LIB_EMAIL),
+                trim(LIB_FULLNAME),
+                to_date('01-03-1970', 'DD-MM-YYYY'),
+                to_number(LIB_PHONE),
+                trim(LIB_ADDRESS),
+                to_date(CONT_START, 'DD.MM.YYYY'),
+                to_date(CONT_END, 'DD.MM.YYYY')
+FROM fsdb.busstops
+where lib_birthdate = '29-02-1970'
 ;
 -- 1 row
 
 -- several last-itv dates for each bus; the later (max) will be taken as valid
-INSERT INTO bibuses(PLATE,LAST_ITV,NEXT_ITV)
-SELECT p, max(l), min (n) FROM
-(SELECT trim(PLATE) p, to_date(trim(LAST_ITV),'DD.MM.YYYY // HH24:MI:SS') l, to_date(trim(NEXT_ITV),'DD.MM.YYYY') n
-        FROM fsdb.busstops) group by p
+INSERT INTO bibuses(PLATE, LAST_ITV, NEXT_ITV)
+SELECT p, max(l), min(n)
+FROM (SELECT trim(PLATE) p, to_date(trim(LAST_ITV), 'DD.MM.YYYY // HH24:MI:SS') l, to_date(trim(NEXT_ITV), 'DD.MM.YYYY') n
+      FROM fsdb.busstops)
+group by p
 ;
 -- 14 rows
 
-INSERT INTO assign_drv (PASSPORT,TASKDATE,ROUTE_ID)
-SELECT DISTINCT trim(LIB_PASSPORT),to_date(STOPDATE,'DD-MM-YYYY'),trim(ROUTE_ID)
+INSERT INTO assign_drv (PASSPORT, TASKDATE, ROUTE_ID)
+SELECT DISTINCT trim(LIB_PASSPORT), to_date(STOPDATE, 'DD-MM-YYYY'), trim(ROUTE_ID)
 FROM fsdb.busstops
 ;
 -- 150 rows
 
-INSERT INTO assign_bus (PLATE,TASKDATE,ROUTE_ID)
-SELECT DISTINCT trim(PLATE),to_date(STOPDATE,'DD-MM-YYYY'),trim(ROUTE_ID)
+INSERT INTO assign_bus (PLATE, TASKDATE, ROUTE_ID)
+SELECT DISTINCT trim(PLATE), to_date(STOPDATE, 'DD-MM-YYYY'), trim(ROUTE_ID)
 FROM fsdb.busstops
 ;
 -- 150 rows
 
 -- stoptime with minute granularity
-INSERT INTO stops (TOWN,PROVINCE,ADDRESS,ROUTE_ID,STOPTIME)
-SELECT DISTINCT trim(TOWN),trim(PROVINCE),trim(ADDRESS),trim(ROUTE_ID),
-       to_number(substr(STOPTIME,1,2))*60+to_number(substr(STOPTIME,4,2))
+INSERT INTO stops (TOWN, PROVINCE, ADDRESS, ROUTE_ID, STOPTIME)
+SELECT DISTINCT trim(TOWN),
+                trim(PROVINCE),
+                trim(ADDRESS),
+                trim(ROUTE_ID),
+                to_number(substr(STOPTIME, 1, 2)) * 60 + to_number(substr(STOPTIME, 4, 2))
 FROM fsdb.busstops
 ;
 -- 1365 rows
 
-INSERT INTO services (TOWN,PROVINCE,BUS,TASKDATE,PASSPORT)
-SELECT DISTINCT trim(TOWN),trim(PROVINCE),trim(PLATE),to_date(STOPDATE,'DD-MM-YYYY'),trim(LIB_PASSPORT)
+INSERT INTO services (TOWN, PROVINCE, BUS, TASKDATE, PASSPORT)
+SELECT DISTINCT trim(TOWN), trim(PROVINCE), trim(PLATE), to_date(STOPDATE, 'DD-MM-YYYY'), trim(LIB_PASSPORT)
 FROM fsdb.busstops
 ;
 -- 1365 rows
@@ -371,37 +414,84 @@ commit;
 -- (or heal by imp. sem assumption: assume first one is the valid, so keep first)
 --skip BAN_UP2 to take null value
 
-INSERT INTO users (USER_ID,ID_CARD,NAME,SURNAME1,SURNAME2,BIRTHDATE,
-                         TOWN,PROVINCE,ADDRESS,EMAIL,PHONE,TYPE)
-SELECT a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12
-FROM (SELECT a1, a2, a3, a4, a5, a6, town a7, a8, a9, a10, a11, a12, row_number() over (partition by a1 order by null) rn
-         FROM (SELECT DISTINCT trim(USER_ID) a1, trim(PASSPORT) a2, trim(NAME) a3, trim(SURNAME1) a4, trim(SURNAME2) a5,
-                  to_date(BIRTHDATE,'DD/MM/YYYY') a6, trim(TOWN) town, to_date(substr(DATE_TIME,1,10),'DD/MM/YYYY') taskdate,
-                  trim(ADDRESS) a9, trim(EMAIL) a10, to_number(PHONE) a11 FROM fsdb.loans ) a
-               JOIN (SELECT DISTINCT trim(TOWN) town,trim(PROVINCE) a8,to_date(STOPDATE,'DD-MM-YYYY') taskdate,
-                            DECODE(HAS_LIBRARY,'Y','L','N','P') a12 FROM fsdb.busstops) b
-               using (town,taskdate)
-     )
-WHERE rn=1;
+INSERT INTO users (USER_ID, ID_CARD, NAME, SURNAME1, SURNAME2, BIRTHDATE,
+                   TOWN, PROVINCE, ADDRESS, EMAIL, PHONE, TYPE)
+SELECT a1,
+       a2,
+       a3,
+       a4,
+       a5,
+       a6,
+       a7,
+       a8,
+       a9,
+       a10,
+       a11,
+       a12
+FROM (SELECT a1,
+             a2,
+             a3,
+             a4,
+             a5,
+             a6,
+             town                                              a7,
+             a8,
+             a9,
+             a10,
+             a11,
+             a12,
+             row_number() over (partition by a1 order by null) rn
+      FROM (SELECT DISTINCT trim(USER_ID)                                   a1,
+                            trim(PASSPORT)                                  a2,
+                            trim(NAME)                                      a3,
+                            trim(SURNAME1)                                  a4,
+                            trim(SURNAME2)                                  a5,
+                            to_date(BIRTHDATE, 'DD/MM/YYYY')                a6,
+                            trim(TOWN)                                      town,
+                            to_date(substr(DATE_TIME, 1, 10), 'DD/MM/YYYY') taskdate,
+                            trim(ADDRESS)                                   a9,
+                            trim(EMAIL)                                     a10,
+                            to_number(PHONE)                                a11
+            FROM fsdb.loans) a
+               JOIN (SELECT DISTINCT trim(TOWN)                              town,
+                                     trim(PROVINCE)                          a8,
+                                     to_date(STOPDATE, 'DD-MM-YYYY')         taskdate,
+                                     DECODE(HAS_LIBRARY, 'Y', 'L', 'N', 'P') a12
+                     FROM fsdb.busstops) b
+                    using (town, taskdate))
+WHERE rn = 1;
 -- 2771 rows
 
 
 --time in minutes
-INSERT INTO loans (SIGNATURE,USER_ID,STOPDATE,TOWN,PROVINCE,TYPE,TIME,RETURN)
-SELECT * FROM (
-   SELECT DISTINCT trim(l.SIGNATURE) c1,trim(USER_ID),to_date(substr(l.DATE_TIME,1,10),'DD/MM/YYYY') s1,trim(u.TOWN) s2,trim(u.PROVINCE) s3,
-          'L', to_number(substr(DATE_TIME,13,2))*60+to_number(substr(DATE_TIME,16,2)), to_date(l.RETURN,'DD/MM/YYYY  HH24:MI:SS')
-      FROM users u JOIN fsdb.loans l using (user_ID) )
-where (s1,s2,s3) in (select taskdate, town, province from services)
-      and c1 in (select signature from copies);
+INSERT INTO loans (SIGNATURE, USER_ID, STOPDATE, TOWN, PROVINCE, TYPE, TIME, RETURN)
+SELECT *
+FROM (SELECT DISTINCT trim(l.SIGNATURE)                                 c1,
+                      trim(USER_ID),
+                      to_date(substr(l.DATE_TIME, 1, 10), 'DD/MM/YYYY') s1,
+                      trim(u.TOWN)                                      s2,
+                      trim(u.PROVINCE)                                  s3,
+                      'L',
+                      to_number(substr(DATE_TIME, 13, 2)) * 60 + to_number(substr(DATE_TIME, 16, 2)),
+                      to_date(l.RETURN, 'DD/MM/YYYY  HH24:MI:SS')
+      FROM users u
+               JOIN fsdb.loans l using (user_ID))
+where (s1, s2, s3) in (select taskdate, town, province from services)
+  and c1 in (select signature from copies);
 -- 23709 rows
 
-INSERT INTO posts (SIGNATURE,USER_ID,STOPDATE,POST_DATE,TEXT,LIKES,DISLIKES)
-SELECT * FROM (
-   SELECT DISTINCT trim(SIGNATURE) p1, trim(USER_ID) p2, to_date(substr(DATE_TIME,1,10),'DD/MM/YYYY') p3,
-          to_date(POST_DATE,'DD/MM/YYYY  HH24:MI:SS'),trim(POST) text,to_number(LIKES),to_number(DISLIKES)
+INSERT INTO posts (SIGNATURE, USER_ID, STOPDATE, POST_DATE, TEXT, LIKES, DISLIKES)
+SELECT *
+FROM (SELECT DISTINCT trim(SIGNATURE)                                 p1,
+                      trim(USER_ID)                                   p2,
+                      to_date(substr(DATE_TIME, 1, 10), 'DD/MM/YYYY') p3,
+                      to_date(POST_DATE, 'DD/MM/YYYY  HH24:MI:SS'),
+                      trim(POST)                                      text,
+                      to_number(LIKES),
+                      to_number(DISLIKES)
       FROM fsdb.loans)
-where TEXT is not null AND (p1,p2,p3) in (select signature, user_id,stopdate from loans);
+where TEXT is not null
+  AND (p1, p2, p3) in (select signature, user_id, stopdate from loans);
 -- 5447 rows
 
 commit;
@@ -432,7 +522,6 @@ WHERE NOT EXISTS (
       AND e.author = b.author);
 
 commit;
-
 
 
 
@@ -499,4 +588,362 @@ FROM drivers d
                     GROUP BY s.passport) sub4 ON (sub4.passport = d.passport); -- sub4 conecta con drivers (sub consulta 4)
 
 
+COMMIT;
+
+
+
+-- Aqui comienza el package foundicu
+----------------------------------------------------------------------
+-- 0) LIMPIEZA: BORRAR EL PACKAGE (si ya existía)
+----------------------------------------------------------------------
+DROP PACKAGE foundicu;
+
+----------------------------------------------------------------------
+-- 1) ACTIVAR SALIDA DE DBMS_OUTPUT
+----------------------------------------------------------------------
+SET SERVEROUTPUT ON;
+
+----------------------------------------------------------------------
+-- 2) PACKAGE foundicu (SPEC)
+----------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE foundicu AS
+    ----------------------------------------------------------------------------
+    -- Variable global para almacenar el usuario de la práctica,
+    -- coincidente con la columna users.user_id
+    ----------------------------------------------------------------------------
+    current_user CHAR(10);
+
+    ----------------------------------------------------------------------------
+    -- Para establecer el usuario actual
+    ----------------------------------------------------------------------------
+    PROCEDURE set_current_user(p_user_id CHAR);
+
+    ----------------------------------------------------------------------------
+    -- Procedimientos requeridos por el enunciado
+    ----------------------------------------------------------------------------
+    PROCEDURE insertar_prestamo(p_signature CHAR);
+    PROCEDURE insertar_reserva(p_isbn VARCHAR2, p_reserva_date DATE);
+    PROCEDURE registrar_devolucion(p_signature CHAR);
+
+END foundicu;
+/
+
+----------------------------------------------------------------------
+-- 3) PACKAGE BODY foundicu
+----------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE BODY foundicu AS
+    --------------------------------------------------------------------------
+    -- 3.1) Procedimiento para fijar el usuario actual
+    --------------------------------------------------------------------------
+    PROCEDURE set_current_user(p_user_id CHAR) IS
+    BEGIN
+        current_user := p_user_id;
+        DBMS_OUTPUT.PUT_LINE('Usuario actual establecido en: ' || p_user_id);
+    END set_current_user;
+
+    --------------------------------------------------------------------------
+    -- 3.2) insertar_prestamo
+    --------------------------------------------------------------------------
+    PROCEDURE insertar_prestamo(p_signature CHAR) IS
+        v_ban_up2        DATE;
+        v_reserva_count  NUMBER;
+        v_loans_active   NUMBER;
+        v_copy_available NUMBER;
+    BEGIN
+        -----------------------------------------------------------------------
+        -- (1) Verificar si current_user existe en la tabla users
+        -----------------------------------------------------------------------
+        SELECT ban_up2
+        INTO v_ban_up2
+        FROM users
+        WHERE user_id = current_user;
+
+        -----------------------------------------------------------------------
+        -- (2) Verificar si el usuario está sancionado (ban_up2 > SYSDATE)
+        -----------------------------------------------------------------------
+        IF v_ban_up2 IS NOT NULL AND v_ban_up2 > SYSDATE THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || current_user || ' sancionado hasta ' || v_ban_up2);
+            RETURN;
+        END IF;
+
+        -----------------------------------------------------------------------
+        -- (3) Verificar si hay una reserva para HOY en esa signatura
+        -----------------------------------------------------------------------
+        SELECT COUNT(*)
+        INTO v_reserva_count
+        FROM loans
+        WHERE signature = p_signature
+          AND user_id = current_user
+          AND type = 'R' -- 'R' = reserva
+          AND return IS NULL
+          AND stopdate = TRUNC(SYSDATE);
+
+        IF v_reserva_count > 0 THEN
+            -- Convertir la reserva en préstamo (UPDATE type='L')
+            UPDATE loans
+            SET type = 'L'
+            WHERE signature = p_signature
+              AND user_id = current_user
+              AND type = 'R'
+              AND return IS NULL
+              AND stopdate = TRUNC(SYSDATE);
+
+            DBMS_OUTPUT.PUT_LINE('Reserva convertida en préstamo para ' || current_user);
+            RETURN;
+        END IF;
+
+        -----------------------------------------------------------------------
+        -- (3b) Si NO hay reserva para hoy, intentar préstamo
+        -- Verificamos disponibilidad de la copia (básico: no está en uso)
+        -----------------------------------------------------------------------
+        SELECT COUNT(*)
+        INTO v_copy_available
+        FROM copies c
+                 LEFT JOIN loans l ON c.signature = l.signature
+        WHERE c.signature = p_signature
+          AND (l.signature IS NULL OR l.return IS NOT NULL);
+
+        IF v_copy_available = 0 THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: La copia ' || p_signature || ' no está disponible.');
+            RETURN;
+        END IF;
+
+        -----------------------------------------------------------------------
+        -- (4) Verificar que el usuario no supere su límite de préstamos+reservas
+        -----------------------------------------------------------------------
+        SELECT COUNT(*)
+        INTO v_loans_active
+        FROM loans
+        WHERE user_id = current_user
+          AND return IS NULL;
+        -- activo
+
+        -- Ejemplo: límite de 5
+        IF v_loans_active >= 5 THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: Límite de 5 préstamos/reservas para ' ||
+                                 current_user || '.');
+            RETURN;
+        END IF;
+
+        -----------------------------------------------------------------------
+        -- (5) Insertar el préstamo
+        --     (town, province, stopdate) deben existir en services
+        -----------------------------------------------------------------------
+        INSERT INTO loans (signature, user_id, stopdate, town, province, type, time, return)
+        VALUES (p_signature,
+                current_user,
+                DATE '2025-05-10', -- Ajusta a la fecha que uses en services
+                'TestTown', -- Ajusta al municipio que creaste
+                'TestProv',
+                'L', -- 'L' = préstamo
+                14, -- 14 días
+                NULL);
+
+        DBMS_OUTPUT.PUT_LINE('Préstamo insertado: copia ' || p_signature || ' para usuario ' || current_user || '.');
+
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: El usuario ' || current_user || ' no existe en tabla users o la copia no se halló.');
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR en insertar_prestamo: ' || SQLERRM);
+    END insertar_prestamo;
+
+    --------------------------------------------------------------------------
+    -- 3.3) insertar_reserva
+    --------------------------------------------------------------------------
+    PROCEDURE insertar_reserva(p_isbn VARCHAR2, p_reserva_date DATE) IS
+        v_ban_up2      DATE;
+        v_loans_active NUMBER;
+        v_signature    copies.signature%TYPE;
+    BEGIN
+        -----------------------------------------------------------------------
+        -- (1) Verificar usuario actual en tabla users
+        -----------------------------------------------------------------------
+        SELECT ban_up2
+        INTO v_ban_up2
+        FROM users
+        WHERE user_id = current_user;
+
+        -----------------------------------------------------------------------
+        -- (2) Verificar sanción
+        -----------------------------------------------------------------------
+        IF v_ban_up2 IS NOT NULL AND v_ban_up2 > SYSDATE THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || current_user || ' sancionado hasta ' || v_ban_up2);
+            RETURN;
+        END IF;
+
+        -----------------------------------------------------------------------
+        -- (3) Verificar límite
+        -----------------------------------------------------------------------
+        SELECT COUNT(*)
+        INTO v_loans_active
+        FROM loans
+        WHERE user_id = current_user
+          AND return IS NULL;
+
+        IF v_loans_active >= 5 THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: Límite activo de 5 préstamos/reservas para ' || current_user);
+            RETURN;
+        END IF;
+
+        -----------------------------------------------------------------------
+        -- (4) Buscar una copia libre de ese ISBN para [p_reserva_date, p_reserva_date+14]
+        -----------------------------------------------------------------------
+        SELECT c.signature
+        INTO v_signature
+        FROM copies c
+        WHERE c.isbn = p_isbn
+          AND NOT EXISTS (SELECT 1
+                          FROM loans l
+                          WHERE l.signature = c.signature
+                            AND l.return IS NULL
+                            AND l.stopdate BETWEEN p_reserva_date AND (p_reserva_date + 14))
+          AND ROWNUM = 1;
+
+        -----------------------------------------------------------------------
+        -- (5) Insertar reserva (town,province,stopdate) -> services
+        -----------------------------------------------------------------------
+        INSERT INTO loans(signature, user_id, stopdate, town, province, type, time, return)
+        VALUES (v_signature,
+                current_user,
+                p_reserva_date,
+                'TestTown', -- Debe existir en services
+                'TestProv',
+                'R', -- 'R' = reserva
+                0,
+                NULL);
+
+        DBMS_OUTPUT.PUT_LINE('Reserva creada: copia ' || v_signature || ' para usuario ' || current_user);
+
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: No hay copia disponible para ISBN=' || p_isbn || ' o usuario ' || current_user || ' no existe.');
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR en insertar_reserva: ' || SQLERRM);
+    END insertar_reserva;
+
+    --------------------------------------------------------------------------
+    -- 3.4) registrar_devolucion
+    --------------------------------------------------------------------------
+    PROCEDURE registrar_devolucion(p_signature CHAR) IS
+        v_count NUMBER;
+    BEGIN
+        -----------------------------------------------------------------------
+        -- (1) Verificar si hay un préstamo activo (type='L') para current_user
+        -----------------------------------------------------------------------
+        SELECT COUNT(*)
+        INTO v_count
+        FROM loans
+        WHERE signature = p_signature
+          AND user_id = current_user
+          AND type = 'L'
+          AND return IS NULL;
+
+        IF v_count = 0 THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: El usuario ' || current_user || ' no tiene un préstamo activo para ' || p_signature);
+            RETURN;
+        END IF;
+
+        -----------------------------------------------------------------------
+        -- (2) Registrar devolución (return=SYSDATE)
+        -----------------------------------------------------------------------
+        UPDATE loans
+        SET return = SYSDATE
+        WHERE signature = p_signature
+          AND user_id = current_user
+          AND type = 'L'
+          AND return IS NULL;
+
+        DBMS_OUTPUT.PUT_LINE('Devolución registrada para ' || current_user || ' y la copia ' || p_signature);
+
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: No se encontró la copia ' || p_signature || ' o el usuario ' || current_user || ' en loans.');
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR en registrar_devolucion: ' || SQLERRM);
+    END registrar_devolucion;
+
+END foundicu;
+/
+
+----------------------------------------------------------------------
+-- 4) DATOS NECESARIOS PARA SATISFACER LAS FOREIGN KEYS
+--    (town, province, stopdate) en loans -> services
+----------------------------------------------------------------------
+-- (a) municipalidades
+INSERT INTO municipalities (town, province, population)
+VALUES ('TestTown', 'TestProv', 1000);
+COMMIT;
+
+-- (b) routes
+INSERT INTO routes(route_id)
+VALUES ('R0001');
+COMMIT;
+
+-- (c) stops
+INSERT INTO stops(town, province, address, route_id, stoptime)
+VALUES ('TestTown', 'TestProv', 'Some Address 123', 'R0001', 100);
+COMMIT;
+
+-- (d) bibuses
+INSERT INTO bibuses (plate, last_itv, next_itv)
+VALUES ('PLATE001', DATE '2021-01-01', DATE '2025-01-01');
+COMMIT;
+
+-- (e) assign_bus
+INSERT INTO assign_bus (plate, taskdate, route_id)
+VALUES ('PLATE001', DATE '2025-05-10', 'R0001');
+COMMIT;
+
+-- (f) drivers
+INSERT INTO drivers (passport, email, fullname, birthdate, phone, address, cont_start)
+VALUES ('PASS000000000000',
+        'driver@demo.com',
+        'Driver Demo',
+        DATE '1970-01-01',
+        999999999,
+        'Driver Address',
+        DATE '2020-01-01');
+COMMIT;
+
+-- (g) assign_drv
+INSERT INTO assign_drv (passport, taskdate, route_id)
+VALUES ('PASS000000000000', DATE '2025-05-10', 'R0001');
+COMMIT;
+
+-- (h) services
+INSERT INTO services (town, province, bus, taskdate, passport)
+VALUES ('TestTown', 'TestProv', 'PLATE001', DATE '2025-05-10', 'PASS000000000000');
+COMMIT;
+
+----------------------------------------------------------------------
+-- 5) CREAR LIBRO, EDICIÓN Y COPIA
+----------------------------------------------------------------------
+INSERT INTO books (title, author)
+VALUES ('DummyTitle', 'DummyAuthor');
+COMMIT;
+
+INSERT INTO editions (isbn, title, author, national_lib_id)
+VALUES ('978-0-13-110362-7', 'DummyTitle', 'DummyAuthor', 'NLI00001');
+COMMIT;
+
+INSERT INTO copies (signature, isbn)
+VALUES ('S0001', '978-0-13-110362-7');
+COMMIT;
+
+----------------------------------------------------------------------
+-- 6) USUARIO (U000000001) -> USERS
+----------------------------------------------------------------------
+INSERT INTO users (user_id, id_card, name, surname1, birthdate,
+                   town, province, address, phone, type)
+VALUES ('U000000001',
+        'IDCARD1234567890',
+        'TestName',
+        'TestSurname',
+        DATE '1985-01-01',
+        'TestTown',
+        'TestProv',
+        'User Address 123',
+        999999999,
+        'P');
 COMMIT;
