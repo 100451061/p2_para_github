@@ -294,23 +294,15 @@ CREATE TABLE posts
 DROP VIEW BoreBooks;
 
 CREATE OR REPLACE VIEW BoreBooks AS
-SELECT DISTINCT b.title, b.author
-
-FROM ( -- Subconsulta sub1: libros con ediciones en al menos 3 idiomas distintos
-         SELECT title, author
-         FROM editions
-         GROUP BY title, author
-         HAVING COUNT(DISTINCT language) >= 3) sub1
-         JOIN books b ON (sub1.title = b.title) AND (sub1.author = b.author)
-
-WHERE NOT EXISTS (
-    -- Comprobamos que ninguna edición del libro haya tenido copias prestadas
-    SELECT 1
-    FROM editions e
-             JOIN copies c ON (c.isbn = e.isbn)
-             JOIN loans l ON (l.signature = c.signature)
-    WHERE e.title = b.title
-      AND e.author = b.author);
+SELECT b.title, b.author
+FROM books b
+         JOIN editions e
+              ON (b.title = e.title) AND (b.author = e.author) -- no es left join, porque incluiría libros que no tienen ediciones, y luego contaría NULL como si fuera un idioma
+         LEFT JOIN copies c ON (e.isbn = c.isbn) -- pongo left join porque puede haber ediciones sin copias físicas.
+         LEFT JOIN loans l ON (c.signature = l.signature) -- pongo left join porque queremos detectar copias sin préstamos.
+GROUP BY b.title, b.author
+HAVING COUNT(DISTINCT e.language) >= 3
+   AND COUNT(l.signature) = 0;
 
 commit;
 
