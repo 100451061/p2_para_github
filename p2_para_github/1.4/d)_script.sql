@@ -314,7 +314,129 @@ END;
 /
 
 
--- (3) Contar lecturas al prestar un libro
+-- (3) Crear "tablas de históricos" tanto para usuarios como para préstamos (no vistas,
+-- sino otras dos tablas idénticas). Cuando se elimina un usuario, crear un registro
+-- histórico de ese usuario y mover todos sus préstamos al histórico de préstamos.
+
+
+-----------------------------
+-- 0. LIMPIEZA (si ya existen)
+-----------------------------
+SET SERVEROUTPUT ON;
+
+BEGIN
+    EXECUTE IMMEDIATE 'DROP TABLE loans_historico';
+EXCEPTION
+    WHEN OTHERS THEN NULL;
+END;
+/
+
+BEGIN
+    EXECUTE IMMEDIATE 'DROP TABLE users_historico';
+EXCEPTION
+    WHEN OTHERS THEN NULL;
+END;
+/
+
+BEGIN
+    EXECUTE IMMEDIATE 'DROP TRIGGER trg_users_to_historico';
+EXCEPTION
+    WHEN OTHERS THEN NULL;
+END;
+/
+
+-----------------------------
+-- 1. CREAR TABLAS DE HISTÓRICO
+-----------------------------
+CREATE TABLE users_historico AS
+SELECT *
+FROM users
+WHERE 1 = 0; --WHERE 1 = 0 nunca se cumple, por lo tanto, no copia datos, solo copia la estructura de la tabla.
+
+CREATE TABLE loans_historico AS
+SELECT *
+FROM loans
+WHERE 1 = 0;
+
+-----------------------------
+-- 2. INSERTAR DATOS DE PRUEBA (opcional)
+-----------------------------
+-- Asegúrate de que exista esta copia:
+INSERT INTO copies(signature, isbn)
+VALUES ('S999', '978-0-13-110362-7');
+
+-- Usuario de prueba
+INSERT INTO users(user_id, id_card, name, surname1, surname2, birthdate, town, province, address, phone, email, type, ban_up2)
+VALUES ('U000DELETE', 'DNI123456', 'Usuario', 'A', 'B', DATE '2000-01-01', 'TestTown', 'TestProv', 'Calle falsa 123', 123456789, 'correo@prueba.com', 'P', NULL);
+
+-- 1. Asegúrate de tener un conductor
+INSERT INTO drivers (passport, email, fullname, birthdate, phone, address, cont_start)
+VALUES ('PASS9999999', 'demo@uc3m.es', 'Demo Driver', DATE '1970-01-01', 123456789, 'Demo Address', DATE '2020-01-01');
+COMMIT;
+
+-- 2. Asegúrate de tener un bibús
+INSERT INTO bibuses (plate, last_itv, next_itv)
+VALUES ('PLATE999', DATE '2020-01-01', DATE '2026-01-01');
+COMMIT;
+
+-- 3. Insertar entrada en SERVICES con los mismos town, province y fecha
+INSERT INTO services (town, province, bus, taskdate, passport)
+VALUES ('TestTown', 'TestProv', TRIM('PLATE999'), TRUNC(SYSDATE), 'PASS9999999');
+COMMIT;
+
+
+-- Préstamo de prueba
+INSERT INTO loans(signature, user_id, stopdate, town, province, type, time, return)
+VALUES ('S999', 'U000DELETE', SYSDATE, 'TestTown', 'TestProv', 'L', 14, NULL);
+
+COMMIT;
+
+-----------------------------
+-- 3. CREAR TRIGGER
+-----------------------------
+CREATE OR REPLACE TRIGGER trg_users_to_historico
+    BEFORE DELETE
+    ON users
+    FOR EACH ROW
+BEGIN
+    -- 1. Copiar usuario eliminado al histórico
+    INSERT INTO users_historico
+    VALUES (:OLD.user_id, :OLD.id_card, :OLD.name, :OLD.surname1, :OLD.surname2,
+            :OLD.birthdate, :OLD.town, :OLD.province, :OLD.address,
+            :OLD.phone, :OLD.email, :OLD.type, :OLD.ban_up2);
+
+    -- 2. Copiar sus préstamos al histórico
+    INSERT INTO loans_historico
+    SELECT *
+    FROM loans
+    WHERE user_id = :OLD.user_id;
+
+    -- 3. Eliminar préstamos originales (por FK)
+    DELETE
+    FROM loans
+    WHERE user_id = :OLD.user_id;
+END;
+/
+
+-----------------------------
+-- 4. PRUEBA FINAL
+-----------------------------
+-- Ejecuta este DELETE:
+DELETE
+FROM users
+WHERE user_id = 'U000DELETE';
+COMMIT;
+
+-- Verifica que se movió todo:
+SELECT *
+FROM users_historico
+WHERE user_id = 'U000DELETE';
+SELECT *
+FROM loans_historico
+WHERE user_id = 'U000DELETE';
+
+
+-- (4) Contar lecturas al prestar un libro
 ALTER TABLE books
     ADD lecturas NUMBER DEFAULT 0;
 
