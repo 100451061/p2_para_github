@@ -281,4 +281,61 @@ CREATE TABLE posts
 );
 
 
--- empezamos el 1.4
+--  (1) Evitar los "posts" de usuarios institucionales (bibliotecas municipales)
+CREATE OR REPLACE TRIGGER trg_no_post_institucional
+    BEFORE INSERT
+    ON posts
+    FOR EACH ROW
+DECLARE
+    v_type users.type%TYPE;
+BEGIN
+    SELECT type
+    INTO v_type
+    FROM users
+    WHERE user_id = :NEW.user_id;
+
+    IF v_type = 'I' THEN
+        RAISE_APPLICATION_ERROR(-20010, 'Los usuarios institucionales no pueden crear posts.');
+    END IF;
+END;
+/
+
+
+-- (2) Establecer automáticamente la "fecha de baja" si el estado de una copia es "deteriorado"
+CREATE OR REPLACE TRIGGER trg_drop_date_deteriorado
+    BEFORE INSERT OR UPDATE
+    ON copies
+    FOR EACH ROW
+BEGIN
+    IF :NEW.status = 'deteriorado' THEN
+        :NEW.drop_date := SYSDATE;
+    END IF;
+END;
+/
+
+
+-- (3) Contar lecturas al prestar un libro
+ALTER TABLE books
+    ADD lecturas NUMBER DEFAULT 0;
+
+CREATE OR REPLACE TRIGGER trg_sumar_lectura
+    AFTER INSERT
+    ON loans
+    FOR EACH ROW
+DECLARE
+    v_isbn editions.isbn%TYPE;
+BEGIN
+    IF :NEW.type = 'L' THEN
+        SELECT isbn
+        INTO v_isbn
+        FROM copies
+        WHERE signature = :NEW.signature;
+
+        UPDATE books
+        SET lecturas = lecturas + 1
+        WHERE (title, author) IN (SELECT title, author
+                                  FROM editions
+                                  WHERE isbn = v_isbn);
+    END IF;
+END;
+/
