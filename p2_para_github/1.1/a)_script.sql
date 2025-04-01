@@ -297,12 +297,12 @@ CREATE OR REPLACE VIEW BoreBooks AS
 SELECT b.title, b.author
 FROM books b
          JOIN editions e
-              ON (b.title = e.title) AND (b.author = e.author) -- no es left join, porque incluiría libros que no tienen ediciones, y luego contaría NULL como si fuera un idioma
-         LEFT JOIN copies c ON (e.isbn = c.isbn) -- pongo left join porque puede haber ediciones sin copias físicas.
-         LEFT JOIN loans l ON (c.signature = l.signature) -- pongo left join porque queremos detectar copias sin préstamos.
+              ON (b.title = e.title) AND (b.author = e.author) --  usamos inner join (no LEFT JOIN) porque solo nos interesan los libros que tienen ediciones.
+         LEFT JOIN copies c ON (e.isbn = c.isbn) -- pongo left join porque hay ediciones que podrían no tener copias aún, y eso no debería eliminar el libro de los resultados.
+         LEFT JOIN loans l ON (c.signature = l.signature) -- pongo left join para asegurarnos de incluir también las copias que nunca han sido prestadas.
 GROUP BY b.title, b.author
 HAVING COUNT(DISTINCT e.language) >= 3
-   AND COUNT(l.signature) = 0;
+   AND COUNT(l.signature) = 0; -- Filtramos libros de los que ninguna copia ha sido prestada (no hay entradas en loans asociadas a ninguna signature de copias de sus ediciones)
 
 commit;
 
