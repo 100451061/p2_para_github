@@ -275,6 +275,7 @@ CREATE OR REPLACE PACKAGE foundicu AS
     FUNCTION get_current_user RETURN CHAR;
     PROCEDURE insertar_prestamo(p_signature CHAR);
     PROCEDURE insertar_reserva(p_isbn VARCHAR2, p_fecha DATE);
+    PROCEDURE insertar_devolucion(p_signature CHAR);
 END foundicu;
 /
 
@@ -573,6 +574,57 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
         WHEN OTHERS THEN
             DBMS_OUTPUT.PUT_LINE('ERROR inesperado en insertar_reserva: ' || SQLERRM);
     END insertar_reserva;
+
+    PROCEDURE insertar_devolucion(p_signature CHAR) IS
+        v_user_id  users.user_id%TYPE := foundicu.get_current_user; -- reutilizo get_current_user
+        v_name     users.name%TYPE;
+        v_surname  users.surname1%TYPE;
+        v_stopdate DATE;
+    BEGIN
+        -----------------------------------------------------------------------
+        -- (1) Verificar que el usuario existe
+        -----------------------------------------------------------------------
+        SELECT name, surname1
+        INTO v_name, v_surname
+        FROM users
+        WHERE user_id = v_user_id;
+
+        -----------------------------------------------------------------------
+        -- (2) Verificar que el usuario tiene un préstamo activo con esa copia
+        -----------------------------------------------------------------------
+        BEGIN
+            SELECT stopdate
+            INTO v_stopdate
+            FROM loans
+            WHERE signature = p_signature
+              AND user_id = v_user_id
+              AND return IS NULL
+              AND type = 'L'; -- Solo prestamos, no reservas
+
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                DBMS_OUTPUT.PUT_LINE('ERROR: El usuario ' || v_user_id || ' (' || v_name || ' ' || v_surname || ')' || ' no tiene ningún préstamo activo con la copia ' ||
+                                     p_signature);
+                RETURN;
+        END;
+
+        -----------------------------------------------------------------------
+        -- (3) Registrar la devolución
+        -----------------------------------------------------------------------
+        UPDATE loans
+        SET return = SYSDATE
+        WHERE signature = p_signature
+          AND user_id = v_user_id
+          AND return IS NULL
+          AND type = 'L';
+
+        DBMS_OUTPUT.PUT_LINE('Devolución registrada: copia ' || p_signature || ' por usuario ' || v_user_id || ' (' || v_name || ' ' || v_surname || ')' || ' con fecha ' ||
+                             TO_CHAR(SYSDATE, 'DD/MM/YYYY'));
+
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR inesperado en insertar_devolucion: ' || SQLERRM);
+    END insertar_devolucion;
 
 
 END foundicu;
