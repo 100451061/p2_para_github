@@ -252,7 +252,7 @@ CREATE TABLE posts
 );
 
 
---  El procedimiento comprueba:
+--  El 1er procedimiento comprueba:
 --
 -- Que el usuario existe y no está sancionado.
 --
@@ -264,14 +264,20 @@ CREATE TABLE posts
 --
 -- Que hay un servicio válido (services) para stopdate.
 
+-------------------------------------------------------------------------
+-- El 2do procedimiento inserta un préstamo en la tabla loans.
+-------------------------------------------------------------------------
+
 CREATE OR REPLACE PACKAGE foundicu AS
-    g_user_id CHAR(10); -- variable de sesión
+    g_user_id CHAR(10);
 
     PROCEDURE set_current_user(p_user_id CHAR);
     FUNCTION get_current_user RETURN CHAR;
     PROCEDURE insertar_prestamo(p_signature CHAR);
+    PROCEDURE insertar_reserva(p_isbn VARCHAR2, p_fecha DATE);
 END foundicu;
 /
+
 
 
 CREATE OR REPLACE PACKAGE BODY foundicu AS
@@ -455,40 +461,114 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
     END insertar_prestamo;
 
 
+    PROCEDURE insertar_reserva(p_isbn VARCHAR2, p_fecha DATE) IS
+        v_name           users.name%TYPE;
+        v_surname        users.surname1%TYPE;
+        v_ban_up2        DATE;
+        v_loans_active   NUMBER;
+        v_signature      copies.signature%TYPE;
+        v_town           users.town%TYPE;
+        v_province       users.province%TYPE;
+        v_tipo_existente CHAR(1);
+    BEGIN
+        -----------------------------------------------------------------------
+        -- (1) Verificar que el usuario existe y obtener info
+        -----------------------------------------------------------------------
+        SELECT ban_up2, name, surname1, town, province
+        INTO v_ban_up2, v_name, v_surname, v_town, v_province
+        FROM users
+        WHERE user_id = g_user_id;
+
+        -----------------------------------------------------------------------
+        -- (2) Verificar sanción
+        -----------------------------------------------------------------------
+        IF v_ban_up2 IS NOT NULL AND v_ban_up2 > SYSDATE THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || g_user_id || ' (' || v_name || ' ' || v_surname || ') sancionado hasta ' || v_ban_up2);
+            RETURN;
+        END IF;
+
+        -----------------------------------------------------------------------
+        -- (3) Verificar límite de préstamos o reservas
+        -----------------------------------------------------------------------
+        SELECT COUNT(*)
+        INTO v_loans_active
+        FROM loans
+        WHERE user_id = g_user_id
+          AND return IS NULL;
+
+        IF v_loans_active >= 5 THEN -- Limite de 5 prestamos o reservas (lo asumo)
+            DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || g_user_id || ' (' || v_name || ' ' || v_surname || ') ha alcanzado el límite de préstamos o reservas.');
+            RETURN;
+        END IF;
+
+        -----------------------------------------------------------------------
+        -- (4) Buscar una copia del ISBN disponible durante 14 días desde p_fecha
+        -----------------------------------------------------------------------
+        BEGIN
+            SELECT c.signature
+            INTO v_signature
+            FROM copies c
+            WHERE c.isbn = p_isbn
+              AND NOT EXISTS (SELECT 1
+                              FROM loans l
+                              WHERE l.signature = c.signature
+                                AND l.return IS NULL
+                                AND l.stopdate BETWEEN p_fecha AND p_fecha + 14)
+              AND ROWNUM = 1;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                DBMS_OUTPUT.PUT_LINE('ERROR: No hay ninguna copia disponible del ISBN ' || p_isbn ||
+                                     ' durante las dos semanas a partir de ' || TO_CHAR(p_fecha, 'DD/MM/YYYY'));
+                RETURN;
+        END;
+
+        -----------------------------------------------------------------------
+        -- (5) Verificar si ya existe una reserva o préstamo para esa copia en esa fecha
+        -----------------------------------------------------------------------
+        BEGIN
+            SELECT type
+            INTO v_tipo_existente
+            FROM loans
+            WHERE signature = v_signature
+              AND user_id = g_user_id
+              AND stopdate = p_fecha;
+
+            IF v_tipo_existente = 'R' THEN
+                DBMS_OUTPUT.PUT_LINE('ERROR: Ya existe una RESERVA para esta copia, usuario y fecha.');
+            ELSIF v_tipo_existente = 'L' THEN
+                DBMS_OUTPUT.PUT_LINE('ERROR: Ya existe un PRÉSTAMO para esta copia, usuario y fecha.');
+            END IF;
+            RETURN;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                NULL; -- no hay duplicado, podemos continuar
+        END;
+
+        -----------------------------------------------------------------------
+        -- (6) Insertar la reserva
+        -----------------------------------------------------------------------
+        INSERT INTO loans (signature, user_id, stopdate, town, province, type, time, return)
+        VALUES (v_signature,
+                g_user_id,
+                p_fecha,
+                v_town,
+                v_province,
+                'R',
+                14,
+                NULL);
+
+        DBMS_OUTPUT.PUT_LINE(' Reserva registrada: ISBN ' || p_isbn || ', copia ' || v_signature || ' para usuario ' || g_user_id || ' (' || v_name || ' ' || v_surname ||
+                             ') en fecha ' || TO_CHAR(p_fecha, 'DD/MM/YYYY'));
+
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || g_user_id || ' no existe.');
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR inesperado en insertar_reserva: ' || SQLERRM);
+    END insertar_reserva;
+
+
 END foundicu;
 /
 
 
-BEGIN
-    foundicu.set_current_user('0230880540');
-END;
-/
-
-BEGIN
-    DBMS_OUTPUT.PUT_LINE('Usuario actual: ' || foundicu.get_current_user());
-END;
-/
-
-BEGIN
-    foundicu.insertar_prestamo('AA001');
-END;
-/
-
--- AA001
--- AA003
--- AA004
--- AA007
--- AA008
--- AA010
--- AA012
--- AA013
--- AA014
--- AA015
-
--- Para 1.1.a) ver que copias no están prestadas
-SELECT signature
-FROM copies
-WHERE signature NOT IN (SELECT signature
-                        FROM loans
-                        WHERE user_id = '0230880540')
-order by signature;
