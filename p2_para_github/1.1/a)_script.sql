@@ -294,33 +294,25 @@ CREATE TABLE posts
 DROP VIEW BoreBooks;
 
 CREATE OR REPLACE VIEW BoreBooks AS
+
+WITH Libros_3_Idiomas AS (SELECT title, author
+                          FROM editions
+                          GROUP BY title, author
+                          HAVING COUNT(DISTINCT language) >= 3),
+
+     Libros_Prestados AS (SELECT DISTINCT e.title, e.author
+                          FROM editions e
+                                   JOIN copies c ON e.isbn = c.isbn
+                                   JOIN loans l ON c.signature = l.signature)
 SELECT b.title, b.author
 FROM books b
-         JOIN editions e
-              ON (b.title = e.title) AND (b.author = e.author) --  usamos inner join (no LEFT JOIN) porque solo nos interesan los libros que tienen ediciones.
-         LEFT JOIN copies c ON (e.isbn = c.isbn) -- pongo left join porque hay ediciones que podrían no tener copias aún, y eso no debería eliminar el libro de los resultados.
-         LEFT JOIN loans l ON (c.signature = l.signature) -- pongo left join para asegurarnos de incluir también las copias que nunca han sido prestadas.
-GROUP BY b.title, b.author
-HAVING COUNT(DISTINCT e.language) >= 3
-   AND COUNT(l.signature) = 0; -- Filtramos libros de los que ninguna copia ha sido prestada (no hay entradas en loans asociadas a ninguna signature de copias de sus ediciones)
+         JOIN Libros_3_Idiomas l3 ON (l3.title = b.title) AND (l3.author = b.author)
 
+WHERE NOT EXISTS (SELECT 1
+                  FROM Libros_Prestados lp
+                  WHERE lp.title = b.title
+                    AND lp.author = b.author);
 
-CREATE OR REPLACE VIEW BoreBooks2 AS
-SELECT b.title, b.author
-FROM books b
-WHERE (b.title, b.author) IN (SELECT e.title, e.author
-                              FROM editions e
-                              GROUP BY e.title, e.author
-                              HAVING COUNT(DISTINCT e.language) >= 3)
-
-  --¿Existen copias prestadas de alguna edición del libro b.title y b.author?
-  -- Si la respuesta es sí, entonces no queremos incluir ese libro en el resultado final
-  AND NOT EXISTS (SELECT 1
-                  FROM editions e2
-                           JOIN copies c ON e2.isbn = c.isbn
-                           JOIN loans l ON c.signature = l.signature
-                  WHERE e2.title = b.title
-                    AND e2.author = b.author);
 
 commit;
 
