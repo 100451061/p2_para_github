@@ -252,6 +252,18 @@ CREATE TABLE posts
 );
 
 
+--  El procedimiento comprueba:
+--
+-- Que el usuario existe y no está sancionado.
+--
+-- Que hay o no hay una reserva para hoy.
+--
+-- Que la copia está disponible.
+--
+-- Que no se excede el límite de 5 préstamos.
+--
+-- Que hay un servicio válido (services) para stopdate.
+
 CREATE OR REPLACE PACKAGE foundicu AS
     g_user_id CHAR(10); -- variable de "sesión"
 
@@ -411,4 +423,9 @@ END;
 /
 
 
-
+-- ver que copias no estan prestadas
+SELECT signature
+FROM copies
+WHERE signature NOT IN (SELECT signature
+                        FROM loans
+                        WHERE user_id = '0230880540');
