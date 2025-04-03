@@ -273,17 +273,20 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
         v_reserva_count  NUMBER;
         v_loans_active   NUMBER;
         v_copy_available NUMBER;
+        v_stopdate       DATE;
+        v_town           VARCHAR2(50);
+        v_province       VARCHAR2(22);
     BEGIN
         -----------------------------------------------------------------------
-        -- (1) Verificar si g_user_id existe en la tabla users
+        -- (1) Verificar si el usuario existe y obtener datos de localidad
         -----------------------------------------------------------------------
-        SELECT ban_up2
-        INTO v_ban_up2
+        SELECT ban_up2, town, province
+        INTO v_ban_up2, v_town, v_province
         FROM users
         WHERE user_id = g_user_id;
 
         -----------------------------------------------------------------------
-        -- (2) Verificar si el usuario está sancionado (ban_up2 > SYSDATE)
+        -- (2) Verificar sanción
         -----------------------------------------------------------------------
         IF v_ban_up2 IS NOT NULL AND v_ban_up2 > SYSDATE THEN
             DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || g_user_id || ' sancionado hasta ' || v_ban_up2);
@@ -291,7 +294,7 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
         END IF;
 
         -----------------------------------------------------------------------
-        -- (3) Verificar si hay una reserva para HOY en esa signatura
+        -- (3) Verificar si hay reserva activa para hoy
         -----------------------------------------------------------------------
         SELECT COUNT(*)
         INTO v_reserva_count
@@ -316,7 +319,7 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
         END IF;
 
         -----------------------------------------------------------------------
-        -- (3b) Verificar disponibilidad de la copia
+        -- (4) Verificar disponibilidad de la copia
         -----------------------------------------------------------------------
         SELECT COUNT(*)
         INTO v_copy_available
@@ -331,7 +334,7 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
         END IF;
 
         -----------------------------------------------------------------------
-        -- (4) Verificar límite de préstamos activos
+        -- (5) Verificar límite de préstamos activos
         -----------------------------------------------------------------------
         SELECT COUNT(*)
         INTO v_loans_active
@@ -345,29 +348,56 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
         END IF;
 
         -----------------------------------------------------------------------
-        -- (5) Insertar préstamo (puedes ajustar stopdate y town)
+        -- (6) Obtener fecha de servicio válida para esa localidad
+        -----------------------------------------------------------------------
+        SELECT taskdate
+        INTO v_stopdate
+        FROM services
+        WHERE town = v_town
+          AND province = v_province
+          AND ROWNUM = 1;
+
+        -----------------------------------------------------------------------
+        -- (6.5) Verificar si ya existe ese préstamo o reserva
+        -----------------------------------------------------------------------
+        SELECT COUNT(*)
+        INTO v_reserva_count
+        FROM loans
+        WHERE signature = p_signature
+          AND user_id = g_user_id
+          AND stopdate = v_stopdate;
+
+        IF v_reserva_count > 0 THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: Ya existe un préstamo o reserva con esa firma, usuario y fecha.');
+            RETURN;
+        END IF;
+
+        -----------------------------------------------------------------------
+        -- (7) Insertar préstamo usando datos obtenidos
         -----------------------------------------------------------------------
         INSERT INTO loans (signature, user_id, stopdate, town, province, type, time, return)
         VALUES (p_signature,
                 g_user_id,
-                DATE '2024-11-19',
-                'Nava del Viento',
-                'Guadalajara',
+                v_stopdate,
+                v_town,
+                v_province,
                 'L',
                 14,
                 NULL);
 
-        DBMS_OUTPUT.PUT_LINE('Préstamo insertado para el usuario ' || g_user_id);
+        DBMS_OUTPUT.PUT_LINE('Préstamo insertado correctamente para el usuario ' || g_user_id);
+
 
     EXCEPTION
         WHEN NO_DATA_FOUND THEN
-            DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || g_user_id || ' no existe o la copia no está registrada.');
+            DBMS_OUTPUT.PUT_LINE('ERROR: Datos insuficientes: usuario o servicio no encontrado.');
         WHEN OTHERS THEN
             DBMS_OUTPUT.PUT_LINE('ERROR inesperado: ' || SQLERRM);
     END insertar_prestamo;
 
 END foundicu;
 /
+
 
 BEGIN
     foundicu.set_current_user('0230880540');
@@ -379,3 +409,6 @@ BEGIN
     foundicu.insertar_prestamo('OC886');
 END;
 /
+
+
+
