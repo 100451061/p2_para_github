@@ -304,6 +304,24 @@ GROUP BY b.title, b.author
 HAVING COUNT(DISTINCT e.language) >= 3
    AND COUNT(l.signature) = 0; -- Filtramos libros de los que ninguna copia ha sido prestada (no hay entradas en loans asociadas a ninguna signature de copias de sus ediciones)
 
+
+CREATE OR REPLACE VIEW BoreBooks2 AS
+SELECT b.title, b.author
+FROM books b
+WHERE (b.title, b.author) IN (SELECT e.title, e.author
+                              FROM editions e
+                              GROUP BY e.title, e.author
+                              HAVING COUNT(DISTINCT e.language) >= 3)
+
+  --¿Existen copias prestadas de alguna edición del libro b.title y b.author?
+  -- Si la respuesta es sí, entonces no queremos incluir ese libro en el resultado final
+  AND NOT EXISTS (SELECT 1
+                  FROM editions e2
+                           JOIN copies c ON e2.isbn = c.isbn
+                           JOIN loans l ON c.signature = l.signature
+                  WHERE e2.title = b.title
+                    AND e2.author = b.author);
+
 commit;
 
 select *
@@ -324,8 +342,8 @@ CREATE OR REPLACE VIEW informe_empleados AS
 SELECT
     -- Información personal
     d.fullname                                                          AS nombre_completo,
-    TRUNC(MONTHS_BETWEEN(SYSDATE, d.birthdate) / 12)                    AS edad,
-    TRUNC(MONTHS_BETWEEN(SYSDATE, d.cont_start) / 12)                   AS antigüedad,
+    TRUNC((SYSDATE - d.birthdate) / 365.25)                             AS edad,
+    TRUNC((SYSDATE - d.cont_start) / 365.25)                            AS antigüedad,
 
     -- Años activos
     sub1.años_activos,
@@ -372,7 +390,9 @@ FROM drivers d
                                END) AS no_devueltos
                     FROM services s
                              JOIN loans l ON (l.stopdate = s.taskdate) AND (l.town = s.town) AND (l.province = s.province) -- loans conecta con services
-                    GROUP BY s.passport) sub4 ON (sub4.passport = d.passport); -- sub4 conecta con drivers (sub consulta 4)
+                    GROUP BY s.passport) sub4 ON (sub4.passport = d.passport) -- sub4 conecta con drivers (sub consulta 4)
+order by FULLNAME;
+
 
 
 COMMIT;
@@ -381,3 +401,6 @@ COMMIT;
 SELECT *
 FROM informe_empleados
 where rownum <= 10;
+
+
+
