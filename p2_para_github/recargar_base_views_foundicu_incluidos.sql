@@ -943,3 +943,90 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
 
 END foundicu;
 /
+
+drop view my_data;
+
+CREATE OR REPLACE VIEW my_data AS
+SELECT user_id,
+       id_card,
+       name,
+       surname1,
+       surname2,
+       birthdate,
+       town,
+       province,
+       address,
+       email,
+       phone,
+       type,
+       ban_up2
+FROM users
+WHERE user_id = foundicu.get_current_user
+WITH READ ONLY;
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+drop view my_loans;
+
+-- paso 1)
+CREATE OR REPLACE VIEW my_loans AS
+SELECT l.signature,
+       l.stopdate,
+       l.town,
+       l.province,
+       l.type,
+       l.time,
+       l.return,
+       p.text AS post,
+       p.post_date,
+       p.likes,
+       p.dislikes
+FROM loans l
+         LEFT JOIN posts p
+                   ON (p.signature = l.signature) AND (p.user_id = l.user_id) AND (p.stopdate = l.stopdate)
+WHERE l.user_id = foundicu.get_current_user
+
+-- aseguramos que solo se pueden modificar filas del usuario actual
+WITH CHECK OPTION CONSTRAINT my_loans_chk;
+
+-- paso 2)
+-- crear el trigger INSTEAD OF UPDATE para la vista my_loans
+-- este trigger permite solo actualizar el post (valor text), y gestiona si hay o no un post previo.
+
+CREATE OR REPLACE TRIGGER trg_update_my_loans
+    INSTEAD OF UPDATE
+    ON my_loans
+    FOR EACH ROW
+DECLARE
+    v_exists NUMBER;
+BEGIN
+    -- Verificar si ya existe post para ese préstamo
+    SELECT COUNT(*)
+    INTO v_exists
+    FROM posts
+    WHERE signature = :OLD.signature
+      AND user_id = foundicu.get_current_user
+      AND stopdate = :OLD.stopdate;
+
+    IF v_exists > 0 THEN
+        -- Actualizar post existente
+        UPDATE posts
+        SET text      = :NEW.post,
+            post_date = SYSDATE
+        WHERE signature = :OLD.signature
+          AND user_id = foundicu.get_current_user
+          AND stopdate = :OLD.stopdate;
+    ELSE
+        -- Insertar nuevo post
+        INSERT INTO posts (signature, user_id, stopdate, post_date, text, likes, dislikes)
+        VALUES (:OLD.signature,
+                foundicu.get_current_user,
+                :OLD.stopdate,
+                SYSDATE,
+                :NEW.post,
+                0,
+                0);
+    END IF;
+END;
+/
