@@ -579,7 +579,6 @@ FROM drivers d
 COMMIT;
 
 
-
 CREATE OR REPLACE PACKAGE foundicu AS
     g_user_id CHAR(10);
 
@@ -587,9 +586,9 @@ CREATE OR REPLACE PACKAGE foundicu AS
     FUNCTION get_current_user RETURN CHAR;
     PROCEDURE insertar_prestamo(p_signature CHAR);
     PROCEDURE insertar_reserva(p_isbn VARCHAR2, p_fecha DATE);
+    PROCEDURE insertar_devolucion(p_signature CHAR);
 END foundicu;
 /
-
 
 
 CREATE OR REPLACE PACKAGE BODY foundicu AS
@@ -685,7 +684,7 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
               AND return IS NULL
               AND stopdate = TRUNC(SYSDATE);
 
-            DBMS_OUTPUT.PUT_LINE('Reserva convertida en préstamo para ' || g_user_id);
+            DBMS_OUTPUT.PUT_LINE('Reserva convertida en préstamo para --> ' || g_user_id);
             RETURN;
         END IF;
 
@@ -763,7 +762,7 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
                 14,
                 NULL);
 
-        DBMS_OUTPUT.PUT_LINE('Estado final: préstamo ' || p_signature || ' para usuario ' || g_user_id || ' (' || v_name || ' ' || v_surname || ')' ||
+        DBMS_OUTPUT.PUT_LINE('Estado final --> préstamo ' || p_signature || ' para usuario ' || g_user_id || ' (' || v_name || ' ' || v_surname || ')' ||
                              ' registrado correctamente.');
     EXCEPTION
         WHEN NO_DATA_FOUND THEN
@@ -876,7 +875,7 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
                 14,
                 NULL);
 
-        DBMS_OUTPUT.PUT_LINE('Reserva registrada: ISBN ' || p_isbn || ', copia ' || v_signature || ' para usuario ' || v_user_id || ' (' || v_name || ' ' || v_surname || ')' ||
+        DBMS_OUTPUT.PUT_LINE('Reserva registrada --> ISBN ' || p_isbn || ', copia ' || v_signature || ' para usuario ' || v_user_id || ' (' || v_name || ' ' || v_surname || ')' ||
                              ' en fecha ' || TO_CHAR(p_fecha, 'DD/MM/YYYY'));
 
     EXCEPTION
@@ -886,6 +885,61 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
             DBMS_OUTPUT.PUT_LINE('ERROR inesperado en insertar_reserva: ' || SQLERRM);
     END insertar_reserva;
 
+
+    PROCEDURE insertar_devolucion(p_signature CHAR) IS
+        v_user_id  users.user_id%TYPE := foundicu.get_current_user; -- Reutiliza función de sesión
+        v_name     users.name%TYPE;
+        v_surname  users.surname1%TYPE;
+        v_stopdate DATE;
+    BEGIN
+        -----------------------------------------------------------------------
+        -- (1) Verificar que el usuario existe
+        -----------------------------------------------------------------------
+        SELECT name, surname1
+        INTO v_name, v_surname
+        FROM users
+        WHERE user_id = v_user_id;
+
+        -----------------------------------------------------------------------
+        -- (2) Verificar que el usuario tiene un préstamo activo con esa copia
+        -----------------------------------------------------------------------
+        BEGIN
+            SELECT stopdate
+            INTO v_stopdate
+            FROM loans
+            WHERE signature = p_signature
+              AND user_id = v_user_id
+              AND return IS NULL
+              AND type = 'L'; -- Solo préstamos, no reservas
+
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                DBMS_OUTPUT.PUT_LINE('ERROR: El usuario ' || v_user_id || ' (' || v_name || ' ' || v_surname || ') ' || 'no tiene ningún préstamo activo con la copia ' ||
+                                     p_signature);
+                RETURN;
+        END;
+
+        -----------------------------------------------------------------------
+        -- (3) Registrar la devolución
+        -----------------------------------------------------------------------
+        UPDATE loans
+        SET return = SYSDATE
+        WHERE signature = p_signature
+          AND user_id = v_user_id
+          AND return IS NULL
+          AND type = 'L';
+
+        IF SQL%ROWCOUNT = 0 THEN -- Validar que el UPDATE realmente afectó a 1 fila (con %ROWCOUNT) esto ya es pro... no haría falta, pero aquí lo dejo por si acaso
+            DBMS_OUTPUT.PUT_LINE('Aviso --> El préstamo ya había sido devuelto anteriormente.');
+        ELSE
+            DBMS_OUTPUT.PUT_LINE('Devolución registrada --> copia ' || p_signature || ' por usuario ' || v_user_id || ' (' || v_name || ' ' || v_surname || ')' || ' con fecha ' ||
+                                 TO_CHAR(SYSDATE, 'DD/MM/YYYY'));
+        END IF;
+
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR inesperado en insertar_devolucion: ' || SQLERRM);
+    END insertar_devolucion;
 
 END foundicu;
 /
