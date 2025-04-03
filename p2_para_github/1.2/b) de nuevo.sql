@@ -462,14 +462,21 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
 
 
     PROCEDURE insertar_reserva(p_isbn VARCHAR2, p_fecha DATE) IS
-        v_name           users.name%TYPE;
-        v_surname        users.surname1%TYPE;
-        v_ban_up2        DATE;
-        v_loans_active   NUMBER;
-        v_signature      copies.signature%TYPE;
-        v_town           users.town%TYPE;
-        v_province       users.province%TYPE;
-        v_tipo_existente CHAR(1);
+        -- No viene en el enunciado, asi que asumiré que el maximo de prestamos es 5, por ejemplo
+        c_max_prestamos CONSTANT NUMBER             := 5;
+
+        -- Variables de usuario
+        v_user_id                users.user_id%TYPE := g_user_id; -- reultilizo get_current_user
+        v_name                   users.name%TYPE;
+        v_surname                users.surname1%TYPE;
+        v_ban_up2                DATE;
+        v_loans_active           NUMBER;
+
+        -- Datos para la reserva
+        v_signature              copies.signature%TYPE;
+        v_town                   users.town%TYPE;
+        v_province               users.province%TYPE;
+        v_tipo_existente         CHAR(1);
     BEGIN
         -----------------------------------------------------------------------
         -- (1) Verificar que el usuario existe y obtener info
@@ -477,27 +484,28 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
         SELECT ban_up2, name, surname1, town, province
         INTO v_ban_up2, v_name, v_surname, v_town, v_province
         FROM users
-        WHERE user_id = g_user_id;
+        WHERE user_id = v_user_id;
 
         -----------------------------------------------------------------------
         -- (2) Verificar sanción
         -----------------------------------------------------------------------
         IF v_ban_up2 IS NOT NULL AND v_ban_up2 > SYSDATE THEN
-            DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || g_user_id || ' (' || v_name || ' ' || v_surname || ') sancionado hasta ' || v_ban_up2);
+            DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || v_user_id || ' (' || v_name || ' ' || v_surname || ') sancionado hasta ' || v_ban_up2);
             RETURN;
         END IF;
 
         -----------------------------------------------------------------------
-        -- (3) Verificar límite de préstamos o reservas
+        -- (3) Verificar límite de préstamos o reservas activos
         -----------------------------------------------------------------------
         SELECT COUNT(*)
         INTO v_loans_active
         FROM loans
-        WHERE user_id = g_user_id
+        WHERE user_id = v_user_id
           AND return IS NULL;
 
-        IF v_loans_active >= 5 THEN -- Limite de 5 prestamos o reservas (lo asumo)
-            DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || g_user_id || ' (' || v_name || ' ' || v_surname || ') ha alcanzado el límite de préstamos o reservas.');
+        IF v_loans_active >= c_max_prestamos THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || v_user_id || ' (' || v_name || ' ' || v_surname || ') ha alcanzado el límite de ' || c_max_prestamos ||
+                                 ' préstamos o reservas (actualmente tiene ' || v_loans_active || ').');
             RETURN;
         END IF;
 
@@ -517,8 +525,7 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
               AND ROWNUM = 1;
         EXCEPTION
             WHEN NO_DATA_FOUND THEN
-                DBMS_OUTPUT.PUT_LINE('ERROR: No hay ninguna copia disponible del ISBN ' || p_isbn ||
-                                     ' durante las dos semanas a partir de ' || TO_CHAR(p_fecha, 'DD/MM/YYYY'));
+                DBMS_OUTPUT.PUT_LINE('ERROR: No hay ninguna copia disponible del ISBN ' || p_isbn || ' durante las dos semanas a partir de ' || TO_CHAR(p_fecha, 'DD/MM/YYYY'));
                 RETURN;
         END;
 
@@ -530,7 +537,7 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
             INTO v_tipo_existente
             FROM loans
             WHERE signature = v_signature
-              AND user_id = g_user_id
+              AND user_id = v_user_id
               AND stopdate = p_fecha;
 
             IF v_tipo_existente = 'R' THEN
@@ -541,7 +548,7 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
             RETURN;
         EXCEPTION
             WHEN NO_DATA_FOUND THEN
-                NULL; -- no hay duplicado, podemos continuar
+                NULL; -- No existe duplicado, podemos continuar
         END;
 
         -----------------------------------------------------------------------
@@ -549,7 +556,7 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
         -----------------------------------------------------------------------
         INSERT INTO loans (signature, user_id, stopdate, town, province, type, time, return)
         VALUES (v_signature,
-                g_user_id,
+                v_user_id,
                 p_fecha,
                 v_town,
                 v_province,
@@ -557,12 +564,12 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
                 14,
                 NULL);
 
-        DBMS_OUTPUT.PUT_LINE(' Reserva registrada: ISBN ' || p_isbn || ', copia ' || v_signature || ' para usuario ' || g_user_id || ' (' || v_name || ' ' || v_surname ||
-                             ') en fecha ' || TO_CHAR(p_fecha, 'DD/MM/YYYY'));
+        DBMS_OUTPUT.PUT_LINE('Reserva registrada: ISBN ' || p_isbn || ', copia ' || v_signature || ' para usuario ' || v_user_id || ' (' || v_name || ' ' || v_surname || ')' ||
+                             ' en fecha ' || TO_CHAR(p_fecha, 'DD/MM/YYYY'));
 
     EXCEPTION
         WHEN NO_DATA_FOUND THEN
-            DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || g_user_id || ' no existe.');
+            DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || v_user_id || ' no existe.');
         WHEN OTHERS THEN
             DBMS_OUTPUT.PUT_LINE('ERROR inesperado en insertar_reserva: ' || SQLERRM);
     END insertar_reserva;
