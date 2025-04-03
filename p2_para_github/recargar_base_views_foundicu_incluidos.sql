@@ -1030,3 +1030,115 @@ BEGIN
     END IF;
 END;
 /
+
+-----------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+drop view my_reservations;
+
+-- paso 1)
+CREATE OR REPLACE VIEW my_reservations AS
+SELECT l.signature,
+       l.stopdate,
+       l.town,
+       l.province,
+       l.time,
+       l.return
+FROM loans l
+WHERE l.user_id = foundicu.get_current_user
+  AND l.type = 'R'
+WITH CHECK OPTION CONSTRAINT my_reservations_chk;
+
+
+CREATE OR REPLACE TRIGGER trg_insert_my_reservations
+    INSTEAD OF INSERT
+    ON my_reservations
+    FOR EACH ROW
+DECLARE
+    v_user_id users.user_id%TYPE := foundicu.get_current_user;
+    v_isbn    editions.isbn%TYPE;
+    v_count   NUMBER;
+BEGIN
+    -- Comprobar que la signatura existe
+    SELECT isbn
+    INTO v_isbn
+    FROM copies
+    WHERE signature = :NEW.signature;
+
+    -- Verificar que esa copia (o cualquier otra del mismo ISBN) está libre en el rango
+    SELECT COUNT(*)
+    INTO v_count
+    FROM copies c
+    WHERE c.isbn = v_isbn
+      AND NOT EXISTS (SELECT 1
+                      FROM loans l
+                      WHERE l.signature = c.signature
+                        AND l.return IS NULL
+                        AND l.stopdate BETWEEN :NEW.stopdate AND :NEW.stopdate + 14);
+
+    IF v_count = 0 THEN
+        RAISE_APPLICATION_ERROR(-20001, 'No hay ninguna copia disponible para esas fechas.');
+    END IF;
+
+    -- Insertar la reserva
+    INSERT INTO loans(signature, user_id, stopdate, town, province, type, time, return)
+    VALUES (:NEW.signature, v_user_id, :NEW.stopdate, :NEW.town, :NEW.province, 'R', 14, NULL);
+END;
+/
+
+
+
+CREATE OR REPLACE TRIGGER trg_delete_my_reservations
+    INSTEAD OF DELETE
+    ON my_reservations
+    FOR EACH ROW
+BEGIN
+    DELETE
+    FROM loans
+    WHERE signature = :OLD.signature
+      AND user_id = foundicu.get_current_user
+      AND stopdate = :OLD.stopdate
+      AND type = 'R';
+END;
+/
+
+
+CREATE OR REPLACE TRIGGER trg_update_my_reservations
+    INSTEAD OF UPDATE
+    ON my_reservations
+    FOR EACH ROW
+DECLARE
+    v_isbn  editions.isbn%TYPE;
+    v_count NUMBER;
+BEGIN
+    -- Obtener el ISBN de la copia
+    SELECT isbn
+    INTO v_isbn
+    FROM copies
+    WHERE signature = :OLD.signature;
+
+    -- Verificar disponibilidad del ISBN en la nueva fecha
+    SELECT COUNT(*)
+    INTO v_count
+    FROM copies c
+    WHERE c.isbn = v_isbn
+      AND NOT EXISTS (SELECT 1
+                      FROM loans l
+                      WHERE l.signature = c.signature
+                        AND l.return IS NULL
+                        AND l.stopdate BETWEEN :NEW.stopdate AND :NEW.stopdate + 14);
+
+    IF v_count = 0 THEN
+        RAISE_APPLICATION_ERROR(-20002, 'No hay disponibilidad para esa nueva fecha.');
+    END IF;
+
+    -- Actualizar la reserva
+    UPDATE loans
+    SET stopdate = :NEW.stopdate
+    WHERE signature = :OLD.signature
+      AND user_id = foundicu.get_current_user
+      AND stopdate = :OLD.stopdate
+      AND type = 'R';
+END;
+/
