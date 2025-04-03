@@ -502,28 +502,29 @@ commit;
 -- de los que nunca se haya prestado ninguna copia.
 DROP VIEW BoreBooks;
 
+
 CREATE OR REPLACE VIEW BoreBooks AS
-SELECT DISTINCT b.title, b.author
 
-FROM ( -- Subconsulta sub1: libros con ediciones en al menos 3 idiomas distintos
-         SELECT title, author
-         FROM editions
-         GROUP BY title, author
-         HAVING COUNT(DISTINCT language) >= 3) sub1
-         JOIN books b ON (sub1.title = b.title) AND (sub1.author = b.author)
+WITH Libros_3_Idiomas AS (SELECT title, author
+                          FROM editions
+                          GROUP BY title, author
+                          HAVING COUNT(DISTINCT language) >= 3),
 
-WHERE NOT EXISTS (
-    -- Comprobamos que ninguna edición del libro haya tenido copias prestadas
-    SELECT 1
-    FROM editions e
-             JOIN copies c ON (c.isbn = e.isbn)
-             JOIN loans l ON (l.signature = c.signature)
-    WHERE e.title = b.title
-      AND e.author = b.author);
+     Libros_Prestados AS (SELECT DISTINCT e.title, e.author
+                          FROM editions e
+                                   JOIN copies c ON e.isbn = c.isbn
+                                   JOIN loans l ON c.signature = l.signature)
+SELECT b.title, b.author
+FROM books b
+         JOIN Libros_3_Idiomas l3 ON (l3.title = b.title) AND (l3.author = b.author)
+
+WHERE NOT EXISTS (SELECT 1
+                  FROM Libros_Prestados lp
+                  WHERE lp.title = b.title
+                    AND lp.author = b.author);
+
 
 commit;
-
-
 
 -- 2) ) Informe de Empleados: para cada conductor, proporcionar su nombre
 -- completo, edad, antigüedad de contrato (años completos), años activo (años
@@ -534,416 +535,45 @@ commit;
 drop view informe_empleados;
 
 CREATE OR REPLACE VIEW informe_empleados AS
-SELECT
-    -- Información personal
-    d.fullname                                                          AS nombre_completo,
-    TRUNC(MONTHS_BETWEEN(SYSDATE, d.birthdate) / 12)                    AS edad,
-    TRUNC(MONTHS_BETWEEN(SYSDATE, d.cont_start) / 12)                   AS antigüedad,
 
-    -- Años activos
-    sub1.años_activos,
+WITH Años_Activos AS (SELECT a.passport,
+                             COUNT(DISTINCT EXTRACT(YEAR FROM a.TASKDATE)) AS años_activos
+                      FROM assign_drv a
+                      GROUP BY a.passport),
 
-    -- Media de paradas por año activo
-    NVL(sub2.total_paradas / NULLIF(sub1.años_activos, 0), 0)           AS media_paradas_por_año,
+     Paradas_Por_Conductor AS (SELECT a.passport,
+                                      COUNT(stp.TOWN) AS total_paradas
+                               FROM assign_drv a
+                                        JOIN services srv ON (srv.taskdate = a.taskdate) AND (srv.passport = a.passport)
+                                        JOIN stops stp ON (stp.town = srv.town) AND (stp.province = srv.province)
+                               GROUP BY a.passport),
 
-    -- Media de préstamos por año activo
-    NVL(sub3.total_prestamos / NULLIF(sub1.años_activos, 0), 0)         AS media_prestamos_por_año,
+     Prestamos_Por_Conductor AS (SELECT a.passport,
+                                        COUNT(l.SIGNATURE)                           AS total_prestamos,
+                                        COUNT(CASE WHEN l.RETURN IS NULL THEN 1 END) AS prestamos_no_devueltos
+                                 FROM assign_drv a
+                                          JOIN services srv ON (srv.taskdate = a.taskdate) AND (srv.passport = a.passport)
+                                          LEFT JOIN loans l ON (l.stopdate = srv.taskdate) AND (l.town = srv.town) AND (l.province = srv.province)
+                                 GROUP BY a.passport)
 
-    -- Porcentaje de préstamos no devueltos
-    NVL(sub4.no_devueltos * 100.0 / NULLIF(sub4.total_prestamos, 0), 0) AS porcentaje_no_devueltos
+
+SELECT d.FULLNAME                                                      AS nombre_completo,
+       TRUNC((SYSDATE - d.birthdate) / 365.25625)                      AS edad,
+       TRUNC((SYSDATE - d.cont_start) / 365.25625)                     AS antigüedad,
+       NVL(a.años_activos, 0)                                          AS años_activos,
+       ROUND(NVL(p.total_paradas, 0) / NULLIF(a.años_activos, 0), 2)   AS media_paradas_por_año,
+       ROUND(NVL(l.total_prestamos, 0) / NULLIF(a.años_activos, 0), 2) AS media_prestamos_por_año,
+       CASE
+           WHEN l.total_prestamos > 0
+               THEN ROUND(l.prestamos_no_devueltos / l.total_prestamos * 100, 2)
+           ELSE 0
+           END                                                         AS porcentaje_no_devueltos
+
 
 FROM drivers d
-
--- sub1: años activos por conductor
-         LEFT JOIN (SELECT passport,
-                           COUNT(DISTINCT EXTRACT(YEAR FROM taskdate)) AS años_activos
-                    FROM assign_drv
-                    GROUP BY passport) sub1 ON (sub1.passport = d.passport) -- sub1 conecta con drivers (sub consulta 1)
-
--- sub2: total de paradas por conductor
-         LEFT JOIN (SELECT s.passport,
-                           COUNT(*) AS total_paradas
-                    FROM assign_drv a
-                             JOIN services s ON (s.taskdate = a.taskdate) AND (s.passport = a.passport) -- services conecta con assign_drv
-                    GROUP BY s.passport) sub2 ON (sub2.passport = d.passport) -- sub2 conecta con drivers (sub consulta 2)
-
--- sub3: total de préstamos por conductor
-         LEFT JOIN (SELECT s.passport,
-                           COUNT(*) AS total_prestamos
-                    FROM assign_drv a
-                             JOIN services s ON (s.taskdate = a.taskdate) AND (s.passport = a.passport) -- services conecta con assign_drv
-                             JOIN loans l ON (l.stopdate = s.taskdate) AND (l.town = s.town) AND (l.province = s.province) -- loans conecta con services
-                    GROUP BY s.passport) sub3 ON (sub3.passport = d.passport) -- sub3 conecta con drivers (sub consulta 3)
-
--- sub4: préstamos no devueltos por conductor
-         LEFT JOIN (SELECT s.passport,
-                           COUNT(*) AS total_prestamos,
-                           SUM(CASE
-                                   WHEN l.return IS NULL
-                                       THEN 1 -- Suma 1 cada vez que el valor return esté vacío (NULL)
-                                   ELSE 0 -- Suma 0 en los demás casos
-                               END) AS no_devueltos
-                    FROM services s
-                             JOIN loans l ON (l.stopdate = s.taskdate) AND (l.town = s.town) AND (l.province = s.province) -- loans conecta con services
-                    GROUP BY s.passport) sub4 ON (sub4.passport = d.passport); -- sub4 conecta con drivers (sub consulta 4)
+         LEFT JOIN Años_Activos a ON (a.passport = d.passport)
+         LEFT JOIN Paradas_Por_Conductor p ON (p.passport = d.passport)
+         LEFT JOIN Prestamos_Por_Conductor l ON (l.passport = d.passport);
 
 
-COMMIT;
-
-
-
--- Aqui comienza el package foundicu
-----------------------------------------------------------------------
--- 0) LIMPIEZA: BORRAR EL PACKAGE (si ya existía)
-----------------------------------------------------------------------
-DROP PACKAGE foundicu;
-
-----------------------------------------------------------------------
--- 1) ACTIVAR SALIDA DE DBMS_OUTPUT
-----------------------------------------------------------------------
-SET SERVEROUTPUT ON;
-
-----------------------------------------------------------------------
--- 2) PACKAGE foundicu (SPEC)
-----------------------------------------------------------------------
-CREATE OR REPLACE PACKAGE foundicu AS
-    ----------------------------------------------------------------------------
-    -- Variable global para almacenar el usuario de la práctica,
-    -- coincidente con la columna users.user_id
-    ----------------------------------------------------------------------------
-    current_user CHAR(10);
-
-    ----------------------------------------------------------------------------
-    -- Para establecer el usuario actual
-    ----------------------------------------------------------------------------
-    PROCEDURE set_current_user(p_user_id CHAR);
-
-    ----------------------------------------------------------------------------
-    -- Procedimientos requeridos por el enunciado
-    ----------------------------------------------------------------------------
-    PROCEDURE insertar_prestamo(p_signature CHAR);
-    PROCEDURE insertar_reserva(p_isbn VARCHAR2, p_reserva_date DATE);
-    PROCEDURE registrar_devolucion(p_signature CHAR);
-
-END foundicu;
-/
-
-----------------------------------------------------------------------
--- 3) PACKAGE BODY foundicu
-----------------------------------------------------------------------
-CREATE OR REPLACE PACKAGE BODY foundicu AS
-    --------------------------------------------------------------------------
-    -- 3.1) Procedimiento para fijar el usuario actual
-    --------------------------------------------------------------------------
-    PROCEDURE set_current_user(p_user_id CHAR) IS
-    BEGIN
-        current_user := p_user_id;
-        DBMS_OUTPUT.PUT_LINE('Usuario actual establecido en: ' || p_user_id);
-    END set_current_user;
-
-    --------------------------------------------------------------------------
-    -- 3.2) insertar_prestamo
-    --------------------------------------------------------------------------
-    PROCEDURE insertar_prestamo(p_signature CHAR) IS
-        v_ban_up2        DATE;
-        v_reserva_count  NUMBER;
-        v_loans_active   NUMBER;
-        v_copy_available NUMBER;
-    BEGIN
-        -----------------------------------------------------------------------
-        -- (1) Verificar si current_user existe en la tabla users
-        -----------------------------------------------------------------------
-        SELECT ban_up2
-        INTO v_ban_up2
-        FROM users
-        WHERE user_id = current_user;
-
-        -----------------------------------------------------------------------
-        -- (2) Verificar si el usuario está sancionado (ban_up2 > SYSDATE)
-        -----------------------------------------------------------------------
-        IF v_ban_up2 IS NOT NULL AND v_ban_up2 > SYSDATE THEN
-            DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || current_user || ' sancionado hasta ' || v_ban_up2);
-            RETURN;
-        END IF;
-
-        -----------------------------------------------------------------------
-        -- (3) Verificar si hay una reserva para HOY en esa signatura
-        -----------------------------------------------------------------------
-        SELECT COUNT(*)
-        INTO v_reserva_count
-        FROM loans
-        WHERE signature = p_signature
-          AND user_id = current_user
-          AND type = 'R' -- 'R' = reserva
-          AND return IS NULL
-          AND stopdate = TRUNC(SYSDATE);
-
-        IF v_reserva_count > 0 THEN
-            -- Convertir la reserva en préstamo (UPDATE type='L')
-            UPDATE loans
-            SET type = 'L'
-            WHERE signature = p_signature
-              AND user_id = current_user
-              AND type = 'R'
-              AND return IS NULL
-              AND stopdate = TRUNC(SYSDATE);
-
-            DBMS_OUTPUT.PUT_LINE('Reserva convertida en préstamo para ' || current_user);
-            RETURN;
-        END IF;
-
-        -----------------------------------------------------------------------
-        -- (3b) Si NO hay reserva para hoy, intentar préstamo
-        -- Verificamos disponibilidad de la copia (básico: no está en uso)
-        -----------------------------------------------------------------------
-        SELECT COUNT(*)
-        INTO v_copy_available
-        FROM copies c
-                 LEFT JOIN loans l ON c.signature = l.signature
-        WHERE c.signature = p_signature
-          AND (l.signature IS NULL OR l.return IS NOT NULL);
-
-        IF v_copy_available = 0 THEN
-            DBMS_OUTPUT.PUT_LINE('ERROR: La copia ' || p_signature || ' no está disponible.');
-            RETURN;
-        END IF;
-
-        -----------------------------------------------------------------------
-        -- (4) Verificar que el usuario no supere su límite de préstamos+reservas
-        -----------------------------------------------------------------------
-        SELECT COUNT(*)
-        INTO v_loans_active
-        FROM loans
-        WHERE user_id = current_user
-          AND return IS NULL;
-        -- activo
-
-        -- Ejemplo: límite de 5
-        IF v_loans_active >= 5 THEN
-            DBMS_OUTPUT.PUT_LINE('ERROR: Límite de 5 préstamos/reservas para ' ||
-                                 current_user || '.');
-            RETURN;
-        END IF;
-
-        -----------------------------------------------------------------------
-        -- (5) Insertar el préstamo
-        --     (town, province, stopdate) deben existir en services
-        -----------------------------------------------------------------------
-        INSERT INTO loans (signature, user_id, stopdate, town, province, type, time, return)
-        VALUES (p_signature,
-                current_user,
-                DATE '2025-05-10', -- Ajusta a la fecha que uses en services
-                'TestTown', -- Ajusta al municipio que creaste
-                'TestProv',
-                'L', -- 'L' = préstamo
-                14, -- 14 días
-                NULL);
-
-        DBMS_OUTPUT.PUT_LINE('Préstamo insertado: copia ' || p_signature || ' para usuario ' || current_user || '.');
-
-    EXCEPTION
-        WHEN NO_DATA_FOUND THEN
-            DBMS_OUTPUT.PUT_LINE('ERROR: El usuario ' || current_user || ' no existe en tabla users o la copia no se halló.');
-        WHEN OTHERS THEN
-            DBMS_OUTPUT.PUT_LINE('ERROR en insertar_prestamo: ' || SQLERRM);
-    END insertar_prestamo;
-
-    --------------------------------------------------------------------------
-    -- 3.3) insertar_reserva
-    --------------------------------------------------------------------------
-    PROCEDURE insertar_reserva(p_isbn VARCHAR2, p_reserva_date DATE) IS
-        v_ban_up2      DATE;
-        v_loans_active NUMBER;
-        v_signature    copies.signature%TYPE;
-    BEGIN
-        -----------------------------------------------------------------------
-        -- (1) Verificar usuario actual en tabla users
-        -----------------------------------------------------------------------
-        SELECT ban_up2
-        INTO v_ban_up2
-        FROM users
-        WHERE user_id = current_user;
-
-        -----------------------------------------------------------------------
-        -- (2) Verificar sanción
-        -----------------------------------------------------------------------
-        IF v_ban_up2 IS NOT NULL AND v_ban_up2 > SYSDATE THEN
-            DBMS_OUTPUT.PUT_LINE('ERROR: Usuario ' || current_user || ' sancionado hasta ' || v_ban_up2);
-            RETURN;
-        END IF;
-
-        -----------------------------------------------------------------------
-        -- (3) Verificar límite
-        -----------------------------------------------------------------------
-        SELECT COUNT(*)
-        INTO v_loans_active
-        FROM loans
-        WHERE user_id = current_user
-          AND return IS NULL;
-
-        IF v_loans_active >= 5 THEN
-            DBMS_OUTPUT.PUT_LINE('ERROR: Límite activo de 5 préstamos/reservas para ' || current_user);
-            RETURN;
-        END IF;
-
-        -----------------------------------------------------------------------
-        -- (4) Buscar una copia libre de ese ISBN para [p_reserva_date, p_reserva_date+14]
-        -----------------------------------------------------------------------
-        SELECT c.signature
-        INTO v_signature
-        FROM copies c
-        WHERE c.isbn = p_isbn
-          AND NOT EXISTS (SELECT 1
-                          FROM loans l
-                          WHERE l.signature = c.signature
-                            AND l.return IS NULL
-                            AND l.stopdate BETWEEN p_reserva_date AND (p_reserva_date + 14))
-          AND ROWNUM = 1;
-
-        -----------------------------------------------------------------------
-        -- (5) Insertar reserva (town,province,stopdate) -> services
-        -----------------------------------------------------------------------
-        INSERT INTO loans(signature, user_id, stopdate, town, province, type, time, return)
-        VALUES (v_signature,
-                current_user,
-                p_reserva_date,
-                'TestTown', -- Debe existir en services
-                'TestProv',
-                'R', -- 'R' = reserva
-                0,
-                NULL);
-
-        DBMS_OUTPUT.PUT_LINE('Reserva creada: copia ' || v_signature || ' para usuario ' || current_user);
-
-    EXCEPTION
-        WHEN NO_DATA_FOUND THEN
-            DBMS_OUTPUT.PUT_LINE('ERROR: No hay copia disponible para ISBN=' || p_isbn || ' o usuario ' || current_user || ' no existe.');
-        WHEN OTHERS THEN
-            DBMS_OUTPUT.PUT_LINE('ERROR en insertar_reserva: ' || SQLERRM);
-    END insertar_reserva;
-
-    --------------------------------------------------------------------------
-    -- 3.4) registrar_devolucion
-    --------------------------------------------------------------------------
-    PROCEDURE registrar_devolucion(p_signature CHAR) IS
-        v_count NUMBER;
-    BEGIN
-        -----------------------------------------------------------------------
-        -- (1) Verificar si hay un préstamo activo (type='L') para current_user
-        -----------------------------------------------------------------------
-        SELECT COUNT(*)
-        INTO v_count
-        FROM loans
-        WHERE signature = p_signature
-          AND user_id = current_user
-          AND type = 'L'
-          AND return IS NULL;
-
-        IF v_count = 0 THEN
-            DBMS_OUTPUT.PUT_LINE('ERROR: El usuario ' || current_user || ' no tiene un préstamo activo para ' || p_signature);
-            RETURN;
-        END IF;
-
-        -----------------------------------------------------------------------
-        -- (2) Registrar devolución (return=SYSDATE)
-        -----------------------------------------------------------------------
-        UPDATE loans
-        SET return = SYSDATE
-        WHERE signature = p_signature
-          AND user_id = current_user
-          AND type = 'L'
-          AND return IS NULL;
-
-        DBMS_OUTPUT.PUT_LINE('Devolución registrada para ' || current_user || ' y la copia ' || p_signature);
-
-    EXCEPTION
-        WHEN NO_DATA_FOUND THEN
-            DBMS_OUTPUT.PUT_LINE('ERROR: No se encontró la copia ' || p_signature || ' o el usuario ' || current_user || ' en loans.');
-        WHEN OTHERS THEN
-            DBMS_OUTPUT.PUT_LINE('ERROR en registrar_devolucion: ' || SQLERRM);
-    END registrar_devolucion;
-
-END foundicu;
-/
-
-----------------------------------------------------------------------
--- 4) DATOS NECESARIOS PARA SATISFACER LAS FOREIGN KEYS
---    (town, province, stopdate) en loans -> services
-----------------------------------------------------------------------
--- (a) municipalidades
-INSERT INTO municipalities (town, province, population)
-VALUES ('TestTown', 'TestProv', 1000);
-COMMIT;
-
--- (b) routes
-INSERT INTO routes(route_id)
-VALUES ('R0001');
-COMMIT;
-
--- (c) stops
-INSERT INTO stops(town, province, address, route_id, stoptime)
-VALUES ('TestTown', 'TestProv', 'Some Address 123', 'R0001', 100);
-COMMIT;
-
--- (d) bibuses
-INSERT INTO bibuses (plate, last_itv, next_itv)
-VALUES ('PLATE001', DATE '2021-01-01', DATE '2025-01-01');
-COMMIT;
-
--- (e) assign_bus
-INSERT INTO assign_bus (plate, taskdate, route_id)
-VALUES ('PLATE001', DATE '2025-05-10', 'R0001');
-COMMIT;
-
--- (f) drivers
-INSERT INTO drivers (passport, email, fullname, birthdate, phone, address, cont_start)
-VALUES ('PASS000000000000',
-        'driver@demo.com',
-        'Driver Demo',
-        DATE '1970-01-01',
-        999999999,
-        'Driver Address',
-        DATE '2020-01-01');
-COMMIT;
-
--- (g) assign_drv
-INSERT INTO assign_drv (passport, taskdate, route_id)
-VALUES ('PASS000000000000', DATE '2025-05-10', 'R0001');
-COMMIT;
-
--- (h) services
-INSERT INTO services (town, province, bus, taskdate, passport)
-VALUES ('TestTown', 'TestProv', 'PLATE001', DATE '2025-05-10', 'PASS000000000000');
-COMMIT;
-
-----------------------------------------------------------------------
--- 5) CREAR LIBRO, EDICIÓN Y COPIA
-----------------------------------------------------------------------
-INSERT INTO books (title, author)
-VALUES ('DummyTitle', 'DummyAuthor');
-COMMIT;
-
-INSERT INTO editions (isbn, title, author, national_lib_id)
-VALUES ('978-0-13-110362-7', 'DummyTitle', 'DummyAuthor', 'NLI00001');
-COMMIT;
-
-INSERT INTO copies (signature, isbn)
-VALUES ('S0001', '978-0-13-110362-7');
-COMMIT;
-
-----------------------------------------------------------------------
--- 6) USUARIO (U000000001) -> USERS
-----------------------------------------------------------------------
-INSERT INTO users (user_id, id_card, name, surname1, birthdate,
-                   town, province, address, phone, type)
-VALUES ('U000000001',
-        'IDCARD1234567890',
-        'TestName',
-        'TestSurname',
-        DATE '1985-01-01',
-        'TestTown',
-        'TestProv',
-        'User Address 123',
-        999999999,
-        'P');
 COMMIT;
