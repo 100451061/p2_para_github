@@ -304,6 +304,8 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
 
 
     PROCEDURE insertar_prestamo(p_signature CHAR) IS
+        v_name           users.name%TYPE;
+        v_surname        users.surname1%TYPE;
         v_ban_up2        DATE;
         v_reserva_count  NUMBER;
         v_loans_active   NUMBER;
@@ -311,12 +313,28 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
         v_stopdate       DATE;
         v_town           VARCHAR2(50);
         v_province       VARCHAR2(22);
+        v_tipo_existente CHAR(1);
+        v_dummy          NUMBER;
     BEGIN
+        -----------------------------------------------------------------------
+        -- (0) Verificar que la copia existe
+        -----------------------------------------------------------------------
+        BEGIN
+            SELECT 1
+            INTO v_dummy
+            FROM copies
+            WHERE signature = p_signature;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                DBMS_OUTPUT.PUT_LINE('ERROR: La copia ' || p_signature || ' no existe.');
+                RETURN;
+        END;
+
         -----------------------------------------------------------------------
         -- (1) Verificar si el usuario existe y obtener datos de localidad
         -----------------------------------------------------------------------
-        SELECT ban_up2, town, province
-        INTO v_ban_up2, v_town, v_province
+        SELECT ban_up2, town, province, name, surname1
+        INTO v_ban_up2, v_town, v_province, v_name, v_surname
         FROM users
         WHERE user_id = g_user_id;
 
@@ -393,9 +411,8 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
           AND ROWNUM = 1;
 
         -----------------------------------------------------------------------
-        -- (6.5) Verificar si ya existe préstamo o reserva y distinguir el tipo
-        DECLARE
-            v_tipo_existente CHAR(1);
+        -- (6.5) Verificar si ya existe préstamo o reserva
+        -----------------------------------------------------------------------
         BEGIN
             SELECT type
             INTO v_tipo_existente
@@ -405,16 +422,15 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
               AND stopdate = v_stopdate;
 
             IF v_tipo_existente = 'R' THEN
-                DBMS_OUTPUT.PUT_LINE('ERROR: Ya existe una RESERVA (R) con esa firma, usuario y fecha.');
+                DBMS_OUTPUT.PUT_LINE('ERROR: Ya existe una RESERVA con esa firma, usuario y fecha.');
             ELSIF v_tipo_existente = 'L' THEN
-                DBMS_OUTPUT.PUT_LINE('ERROR: Ya existe un PRÉSTAMO (L) con esa firma, usuario y fecha.');
+                DBMS_OUTPUT.PUT_LINE('ERROR: Ya existe un PRÉSTAMO con esa firma, usuario y fecha.');
             END IF;
             RETURN;
         EXCEPTION
             WHEN NO_DATA_FOUND THEN
-                NULL; -- si no hay nada, se continúa con el insert
+                NULL;
         END;
-
 
         -----------------------------------------------------------------------
         -- (7) Insertar préstamo usando datos obtenidos
@@ -429,15 +445,15 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
                 14,
                 NULL);
 
-        DBMS_OUTPUT.PUT_LINE('Préstamo insertado correctamente para el usuario ' || g_user_id);
-
-
+        DBMS_OUTPUT.PUT_LINE('Estado final: préstamo ' || p_signature || ' para usuario ' || g_user_id || ' (' || v_name || ' ' || v_surname || ')' ||
+                             ' registrado correctamente.');
     EXCEPTION
         WHEN NO_DATA_FOUND THEN
             DBMS_OUTPUT.PUT_LINE('ERROR: Datos insuficientes: usuario o servicio no encontrado.');
         WHEN OTHERS THEN
             DBMS_OUTPUT.PUT_LINE('ERROR inesperado: ' || SQLERRM);
     END insertar_prestamo;
+
 
 END foundicu;
 /
@@ -448,6 +464,10 @@ BEGIN
 END;
 /
 
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('Usuario actual: ' || foundicu.get_current_user());
+END;
+/
 
 BEGIN
     foundicu.insertar_prestamo('AA001');
@@ -465,7 +485,7 @@ END;
 -- AA014
 -- AA015
 
--- ver que copias no estan prestadas
+-- Para 1.1.a) ver que copias no están prestadas
 SELECT signature
 FROM copies
 WHERE signature NOT IN (SELECT signature
