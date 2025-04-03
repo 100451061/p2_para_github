@@ -362,8 +362,8 @@ WITH Años_Activos AS (SELECT a.passport,
 
 
 SELECT d.FULLNAME                                                      AS nombre_completo,
-       FLOOR(MONTHS_BETWEEN(SYSDATE, d.birthdate) / 12)                AS edad,
-       FLOOR(MONTHS_BETWEEN(SYSDATE, d.cont_start) / 12)               AS antigüedad,
+       TRUNC((SYSDATE - d.birthdate) / 365.25625)                      AS edad,
+       TRUNC((SYSDATE - d.cont_start) / 365.25625)                     AS antigüedad,
        NVL(a.años_activos, 0)                                          AS años_activos,
        ROUND(NVL(p.total_paradas, 0) / NULLIF(a.años_activos, 0), 2)   AS media_paradas_por_año,
        ROUND(NVL(l.total_prestamos, 0) / NULLIF(a.años_activos, 0), 2) AS media_prestamos_por_año,
