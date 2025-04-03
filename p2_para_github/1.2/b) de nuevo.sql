@@ -265,20 +265,43 @@ CREATE TABLE posts
 -- Que hay un servicio válido (services) para stopdate.
 
 CREATE OR REPLACE PACKAGE foundicu AS
-    g_user_id CHAR(10); -- variable de "sesión"
+    g_user_id CHAR(10); -- variable de sesión
 
     PROCEDURE set_current_user(p_user_id CHAR);
+    FUNCTION get_current_user RETURN CHAR;
     PROCEDURE insertar_prestamo(p_signature CHAR);
 END foundicu;
 /
 
+
 CREATE OR REPLACE PACKAGE BODY foundicu AS
 
     PROCEDURE set_current_user(p_user_id CHAR) IS
+        v_name    users.name%TYPE;
+        v_surname users.surname1%TYPE;
     BEGIN
         g_user_id := p_user_id;
-        DBMS_OUTPUT.PUT_LINE('Usuario actual establecido en: ' || p_user_id);
+
+        -- Obtener nombre y apellido
+        SELECT name, surname1
+        INTO v_name, v_surname
+        FROM users
+        WHERE user_id = g_user_id;
+
+        -- Mostrar usuario completo
+        DBMS_OUTPUT.PUT_LINE('Set Usuario actual --> ' || g_user_id || ' (' || v_name || ' ' || v_surname || ')');
+
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            DBMS_OUTPUT.PUT_LINE('Usuario ' || p_user_id || ' no encontrado en la tabla users.');
     END set_current_user;
+
+
+    FUNCTION get_current_user RETURN CHAR IS
+    BEGIN
+        RETURN g_user_id;
+    END get_current_user;
+
 
     PROCEDURE insertar_prestamo(p_signature CHAR) IS
         v_ban_up2        DATE;
@@ -370,19 +393,28 @@ CREATE OR REPLACE PACKAGE BODY foundicu AS
           AND ROWNUM = 1;
 
         -----------------------------------------------------------------------
-        -- (6.5) Verificar si ya existe ese préstamo o reserva
-        -----------------------------------------------------------------------
-        SELECT COUNT(*)
-        INTO v_reserva_count
-        FROM loans
-        WHERE signature = p_signature
-          AND user_id = g_user_id
-          AND stopdate = v_stopdate;
+        -- (6.5) Verificar si ya existe préstamo o reserva y distinguir el tipo
+        DECLARE
+            v_tipo_existente CHAR(1);
+        BEGIN
+            SELECT type
+            INTO v_tipo_existente
+            FROM loans
+            WHERE signature = p_signature
+              AND user_id = g_user_id
+              AND stopdate = v_stopdate;
 
-        IF v_reserva_count > 0 THEN
-            DBMS_OUTPUT.PUT_LINE('ERROR: Ya existe un préstamo o reserva con esa firma, usuario y fecha.');
+            IF v_tipo_existente = 'R' THEN
+                DBMS_OUTPUT.PUT_LINE('ERROR: Ya existe una RESERVA (R) con esa firma, usuario y fecha.');
+            ELSIF v_tipo_existente = 'L' THEN
+                DBMS_OUTPUT.PUT_LINE('ERROR: Ya existe un PRÉSTAMO (L) con esa firma, usuario y fecha.');
+            END IF;
             RETURN;
-        END IF;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                NULL; -- si no hay nada, se continúa con el insert
+        END;
+
 
         -----------------------------------------------------------------------
         -- (7) Insertar préstamo usando datos obtenidos
@@ -418,14 +450,25 @@ END;
 
 
 BEGIN
-    foundicu.insertar_prestamo('OC886');
+    foundicu.insertar_prestamo('AA001');
 END;
 /
 
+-- AA001
+-- AA003
+-- AA004
+-- AA007
+-- AA008
+-- AA010
+-- AA012
+-- AA013
+-- AA014
+-- AA015
 
 -- ver que copias no estan prestadas
 SELECT signature
 FROM copies
 WHERE signature NOT IN (SELECT signature
                         FROM loans
-                        WHERE user_id = '0230880540');
+                        WHERE user_id = '0230880540')
+order by signature;
