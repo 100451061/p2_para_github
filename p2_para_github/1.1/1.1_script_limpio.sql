@@ -1,9 +1,5 @@
 -- 1) BoreBooks: libros con ediciones en, al menos, tres idiomas (language) distintos,
 -- de los que nunca se haya prestado ninguna copia.
-DROP VIEW BoreBooks;
-COMMIT;
-
-CREATE OR REPLACE VIEW BoreBooks AS
 
 WITH Libros_3_Idiomas AS (SELECT title, author
                           FROM editions
@@ -22,7 +18,6 @@ WHERE NOT EXISTS (SELECT 1
                   FROM Libros_Prestados lp
                   WHERE lp.title = b.title
                     AND lp.author = b.author);
-COMMIT;
 
 
 
@@ -31,11 +26,6 @@ COMMIT;
 -- con al menos un día en carretera), número medio de paradas por año activo,
 -- número medio de préstamos por año activo, y porcentaje de préstamos no
 -- devueltos (con respecto al total operados por ese empleado).
-
-drop view informe_empleados;
-COMMIT;
-
-CREATE OR REPLACE VIEW informe_empleados AS
 
 WITH Años_Activos AS (SELECT a.passport,
                              COUNT(DISTINCT EXTRACT(YEAR FROM a.TASKDATE)) AS años_activos
@@ -75,4 +65,3 @@ FROM drivers d
          LEFT JOIN Años_Activos a ON (a.passport = d.passport)
          LEFT JOIN Paradas_Por_Conductor p ON (p.passport = d.passport)
          LEFT JOIN Prestamos_Por_Conductor l ON (l.passport = d.passport);
-COMMIT;
