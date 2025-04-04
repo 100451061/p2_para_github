@@ -604,23 +604,42 @@ WHERE l.user_id = foundicu.get_current_user
   AND l.type = 'R'
 WITH CHECK OPTION CONSTRAINT my_reservations_chk;
 
-
+-----------------------------------------------------------------------------------------------------------------------------------
+-- paso 2) INSERT
+-----------------------------------------------------------------------------------------------------------------------------------
 CREATE OR REPLACE TRIGGER trg_insert_my_reservations
     INSTEAD OF INSERT
     ON my_reservations
     FOR EACH ROW
 DECLARE
-    v_user_id users.user_id%TYPE := foundicu.get_current_user;
-    v_isbn    editions.isbn%TYPE;
-    v_count   NUMBER;
+    v_user_id  users.user_id%TYPE := foundicu.get_current_user;
+    v_isbn     editions.isbn%TYPE;
+    v_count    NUMBER;
+    v_town     users.town%TYPE;
+    v_province users.province%TYPE;
 BEGIN
     -- Comprobar que la signatura existe
-    SELECT isbn
-    INTO v_isbn
-    FROM copies
-    WHERE signature = :NEW.signature;
+    SELECT isbn INTO v_isbn FROM copies WHERE signature = :NEW.signature;
 
-    -- Verificar que esa copia (o cualquier otra del mismo ISBN) está libre en el rango
+    -- Obtener la localidad del usuario
+    SELECT town, province
+    INTO v_town, v_province
+    FROM users
+    WHERE user_id = v_user_id;
+
+    -- Verificar que hay un servicio ese día
+    SELECT COUNT(*)
+    INTO v_count
+    FROM services
+    WHERE town = v_town
+      AND province = v_province
+      AND taskdate = :NEW.stopdate;
+
+    IF v_count = 0 THEN
+        RAISE_APPLICATION_ERROR(-20010, 'ERROR: No hay ningún servicio en ' || v_town || ' (' || v_province || ') el día ' || TO_CHAR(:NEW.stopdate, 'DD/MM/YYYY'));
+    END IF;
+
+    -- Verificar disponibilidad de cualquier copia de ese ISBN en ese rango
     SELECT COUNT(*)
     INTO v_count
     FROM copies c
@@ -632,7 +651,7 @@ BEGIN
                         AND l.stopdate BETWEEN :NEW.stopdate AND :NEW.stopdate + 14);
 
     IF v_count = 0 THEN
-        RAISE_APPLICATION_ERROR(-20001, 'No hay ninguna copia disponible para esas fechas.');
+        RAISE_APPLICATION_ERROR(-20001, 'ERROR: No hay ninguna copia disponible del ISBN ' || v_isbn || ' para las dos semanas desde ' || TO_CHAR(:NEW.stopdate, 'DD/MM/YYYY'));
     END IF;
 
     -- Insertar la reserva
@@ -641,8 +660,9 @@ BEGIN
 END;
 /
 
-
-
+--------------------------------------------------------------------------------------------------------------------------------
+-- paso 3) DELETE
+--------------------------------------------------------------------------------------------------------------------------------
 CREATE OR REPLACE TRIGGER trg_delete_my_reservations
     INSTEAD OF DELETE
     ON my_reservations
@@ -657,15 +677,37 @@ BEGIN
 END;
 /
 
-
+---------------------------------------------------------------------------------------------------------------------------------
+-- paso 4) UPDATE
+---------------------------------------------------------------------------------------------------------------------------------
 CREATE OR REPLACE TRIGGER trg_update_my_reservations
     INSTEAD OF UPDATE
     ON my_reservations
     FOR EACH ROW
 DECLARE
-    v_isbn  editions.isbn%TYPE;
-    v_count NUMBER;
+    v_isbn     editions.isbn%TYPE;
+    v_count    NUMBER;
+    v_town     users.town%TYPE;
+    v_province users.province%TYPE;
 BEGIN
+    -- Obtener el municipio del usuario actual
+    SELECT town, province
+    INTO v_town, v_province
+    FROM users
+    WHERE user_id = foundicu.get_current_user;
+
+    -- Verificar que la nueva fecha está en services
+    SELECT COUNT(*)
+    INTO v_count
+    FROM services
+    WHERE town = v_town
+      AND province = v_province
+      AND taskdate = :NEW.stopdate;
+
+    IF v_count = 0 THEN
+        RAISE_APPLICATION_ERROR(-20003, 'ERROR: No hay ningún servicio en ' || v_town || ' (' || v_province || ') para el día ' || TO_CHAR(:NEW.stopdate, 'DD/MM/YYYY'));
+    END IF;
+
     -- Obtener el ISBN de la copia
     SELECT isbn
     INTO v_isbn
@@ -684,7 +726,7 @@ BEGIN
                         AND l.stopdate BETWEEN :NEW.stopdate AND :NEW.stopdate + 14);
 
     IF v_count = 0 THEN
-        RAISE_APPLICATION_ERROR(-20002, 'No hay disponibilidad para esa nueva fecha.');
+        RAISE_APPLICATION_ERROR(-20002, 'ERROR: No hay disponibilidad del ISBN para la nueva fecha ' || TO_CHAR(:NEW.stopdate, 'DD/MM/YYYY'));
     END IF;
 
     -- Actualizar la reserva
