@@ -300,7 +300,7 @@ BEGIN
     END IF;
 END;
 /
-
+COMMIT;
 --     paso 2)
 CREATE OR REPLACE TRIGGER trg_no_update_posts_bibliotecas
     BEFORE UPDATE
@@ -319,7 +319,7 @@ BEGIN
     END IF;
 END;
 /
-
+COMMIT;
 
 -- (b) Actualizar el estado de las copias al devolverlas
 CREATE OR REPLACE TRIGGER trg_copies_deteriorada
@@ -332,7 +332,7 @@ BEGIN
     END IF;
 END;
 /
-
+COMMIT;
 
 -- (c) Históricos al eliminar usuarios
 
@@ -340,15 +340,19 @@ END;
 DROP TABLE users_hist;
 DROP TABLE loans_hist;
 
+COMMIT;
+
 CREATE TABLE users_hist AS
 SELECT *
 FROM users
 WHERE 1 = 0;
+COMMIT;
 
 CREATE TABLE loans_hist AS
 SELECT *
 FROM loans
 WHERE 1 = 0;
+COMMIT;
 
 -- paso 2) Crear trigger
 CREATE OR REPLACE TRIGGER trg_before_delete_users
@@ -374,3 +378,4 @@ BEGIN
     WHERE user_id = :OLD.user_id;
 END;
 /
+COMMIT;
