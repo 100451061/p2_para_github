@@ -342,16 +342,21 @@ DROP TABLE loans_hist;
 
 COMMIT;
 
+-- creamos una nueva tabla con la misma estructura que 'users', pero sin registros.
+-- así que creo la tabla con datos y luego uso TRUNCATE TABLE para vaciarla.
 CREATE TABLE users_hist AS
 SELECT *
-FROM users
-WHERE 1 = 0;
-COMMIT;
+FROM users;
+
+TRUNCATE TABLE users_hist;
+
 
 CREATE TABLE loans_hist AS
 SELECT *
-FROM loans
-WHERE 1 = 0;
+FROM loans;
+
+TRUNCATE TABLE loans_hist;
+
 COMMIT;
 
 -- paso 2) Crear trigger
