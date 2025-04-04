@@ -498,7 +498,7 @@ commit;
 
 
 
-REATE OR REPLACE PACKAGE foundicu AS
+CREATE OR REPLACE PACKAGE foundicu AS
     g_user_id CHAR(10);
 
 PROCEDURE set_current_user(p_user_id CHAR);

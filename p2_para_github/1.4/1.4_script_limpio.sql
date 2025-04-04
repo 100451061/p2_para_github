@@ -1,6 +1,7 @@
 -- (a) Evitar posts de bibliotecas (prohibido insertar o modificar posts de bibliotecas)
 
 --     paso 1)
+
 CREATE OR REPLACE TRIGGER trg_no_posts_bibliotecas
     BEFORE INSERT
     ON posts
