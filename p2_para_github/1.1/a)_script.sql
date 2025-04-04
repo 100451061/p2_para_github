@@ -292,6 +292,7 @@ CREATE TABLE posts
 -- 1) BoreBooks: libros con ediciones en, al menos, tres idiomas (language) distintos,
 -- de los que nunca se haya prestado ninguna copia.
 DROP VIEW BoreBooks;
+COMMIT;
 
 CREATE OR REPLACE VIEW BoreBooks AS
 
@@ -312,13 +313,7 @@ WHERE NOT EXISTS (SELECT 1
                   FROM Libros_Prestados lp
                   WHERE lp.title = b.title
                     AND lp.author = b.author);
-
-
-commit;
-
-select *
-from BoreBooks
-where rownum <= 10;
+COMMIT;
 
 
 
@@ -329,6 +324,7 @@ where rownum <= 10;
 -- devueltos (con respecto al total operados por ese empleado).
 
 drop view informe_empleados;
+COMMIT;
 
 CREATE OR REPLACE VIEW informe_empleados AS
 
@@ -370,11 +366,4 @@ FROM drivers d
          LEFT JOIN Años_Activos a ON (a.passport = d.passport)
          LEFT JOIN Paradas_Por_Conductor p ON (p.passport = d.passport)
          LEFT JOIN Prestamos_Por_Conductor l ON (l.passport = d.passport);
-
-
 COMMIT;
-
-
-SELECT *
-FROM informe_empleados
-where rownum <= 10;
