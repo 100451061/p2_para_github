@@ -38,8 +38,7 @@ SELECT l.signature,
        p.likes,
        p.dislikes
 FROM loans l
-         LEFT JOIN posts p
-                   ON (p.signature = l.signature) AND (p.user_id = l.user_id) AND (p.stopdate = l.stopdate)
+         LEFT JOIN posts p ON (p.signature = l.signature) AND (p.user_id = l.user_id) AND (p.stopdate = l.stopdate)
 WHERE l.user_id = foundicu.get_current_user
 -- aseguramos que solo se pueden modificar filas del usuario actual
 WITH CHECK OPTION CONSTRAINT my_loans_chk;

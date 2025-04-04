@@ -1,8 +1,10 @@
+-- Prueba 1 – Ver datos de usuario actual
 BEGIN
     foundicu.set_current_user('0230880540');
 END;
 /
 
+-- Ahora podemos ver el contenido de la vista
 SELECT *
 FROM my_data;
 
@@ -11,32 +13,50 @@ FROM my_data;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
+-- Paso 1: Establecer el usuario actual
 BEGIN
     foundicu.set_current_user('0230880540');
 END;
+/
 
-
+-- Paso 2: Ver los préstamos actuales del usuario
 SELECT *
 FROM my_loans;
 
--- Asegurar de que habia un préstamo real con esa signatura y ese usuario actual (si no lo tiene ya).
+-- Paso 3: Insertar un nuevo préstamo si no hay
 BEGIN
-    foundicu.insertar_prestamo('NE000'); -- o cualquier otra copia libre
+    foundicu.insertar_prestamo('NE000'); -- Usa una copia libre
 END;
 /
 
-UPDATE my_loans
-SET post = 'Un libro muy útil y bien conservado.'
-WHERE signature = 'NE000';
-
-
--- Luego confirma que sigue pendiente:
+-- Paso 4: Comprobar que el préstamo está pendiente
 SELECT *
 FROM my_loans
 WHERE signature = 'NE000'
   AND return IS NULL;
 
+-- Paso 5: Insertar o actualizar un post sobre el préstamo
+UPDATE my_loans
+SET post = 'Un libro muy útil y bien conservado.'
+WHERE signature = 'NE000';
 
+-- Paso 6: Verificar que el post se ha registrado
+SELECT *
+FROM my_loans
+WHERE signature = 'NE000';
+
+-- Paso 7: Confirmar directamente en la tabla posts (opcional)
+SELECT *
+FROM posts
+WHERE signature = 'NE000'
+  AND user_id = '0230880540';
+
+
+-- paso 9 - Borrar de my loans (si se quiere) (para limpiar)
+DELETE
+FROM my_loans
+WHERE signature = 'NE000'
+  AND return IS NULL;
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -65,6 +85,10 @@ WHERE NOT EXISTS (SELECT 1
 INSERT INTO my_reservations (signature, stopdate, town, province, time, return)
 VALUES ('BA693', DATE '2024-11-19', 'Nava del Viento', 'Guadalajara', 14, NULL);
 
+
+select *
+from my_reservations;
+
 -- por si lo quieres borrar
 delete
 from my_reservations
@@ -72,7 +96,9 @@ where signature = 'BA693';
 
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
+-------------------------------------------------------------------
+-- PRUEBAS DE ERROR CONTROLADO (disparadores en acción)
+-------------------------------------------------------------------
 -- output: No hay ningún servicio en Nava del Viento (Guadalajara) el día 28/11/2024
 INSERT INTO my_reservations (signature, stopdate, town, province, time, return)
 VALUES ('AA001', DATE '2024-11-28', 'Nava del Viento', 'Guadalajara', 14, NULL);
