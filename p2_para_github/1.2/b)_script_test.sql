@@ -1,5 +1,7 @@
 -- probar el 1.2.a)
 
+SET SERVEROUTPUT ON;
+
 BEGIN
     foundicu.set_current_user('0230880540');
 END;
@@ -13,7 +15,6 @@ END;
 /
 
 -- Probar insertar_prestamo con el usuario actual asignado
-
 BEGIN
     foundicu.insertar_prestamo('AA001');
 END;
@@ -52,7 +53,8 @@ WHERE NOT EXISTS (SELECT 1
                   FROM loans l
                   WHERE l.signature = c.signature
                     AND l.return IS NULL
-                    AND l.stopdate BETWEEN DATE '2024-11-19' AND DATE '2024-12-03');
+                    AND l.stopdate BETWEEN DATE '2024-11-19' AND DATE '2024-12-03')
+order by c.signature;
 
 
 -- pruebo
@@ -73,7 +75,6 @@ END;
 
 
 -- verificar
-
 SELECT *
 FROM loans
 WHERE user_id = '0230880540'
