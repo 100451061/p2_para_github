@@ -316,7 +316,6 @@ WHERE NOT EXISTS (SELECT 1
 COMMIT;
 
 
-
 -- 2) ) Informe de Empleados: para cada conductor, proporcionar su nombre
 -- completo, edad, antigüedad de contrato (años completos), años activo (años
 -- con al menos un día en carretera), número medio de paradas por año activo,
